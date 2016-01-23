@@ -42,7 +42,8 @@ endif
 override_dh_sphinxdoc:
 ifeq (,$(findstring nodocs, $(DEB_BUILD_OPTIONS)))
 	PYTHONPATH=. sphinx-build $(SPHINXOPTS) -b html doc/source $(CURDIR)/debian/senlin-doc/usr/share/doc/senlin-doc/html
-	dh_sphinxdoc -O--buildsystem=python_distutils
+	rm $(CURDIR)/debian/senlin-doc/usr/share/doc/senlin-doc/html/search.html
+	dh_sphinxdoc
 endif
 
 
