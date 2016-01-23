@@ -1,5 +1,5 @@
 senlin (1.0.0~b2-1) experimental; urgency=medium
 
-  * Initial release. (Closes: #XXXXXX)
+  * Initial release. (Closes: #812414)
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 23 Jan 2016 19:33:45 +0800
