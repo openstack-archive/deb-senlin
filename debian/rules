@@ -15,10 +15,12 @@ SPHINXOPTS := -D html_last_updated_fmt="$(BUILD_DATE)"
 override_dh_clean:
 	rm -rf build
 	rm -f debian/*.init debian/*.service debian/*.upstart
+	rm -f debian/senlin-common.config debian/senlin-common.postinst debian/senlin-api.config debian/senlin-api.postinst
 	dh_clean
 
 override_dh_auto_build:
 	dh_auto_build
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func senlin-common.config
 	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func senlin-common.postinst
 	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func senlin-api.config
 	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func senlin-api.postinst
