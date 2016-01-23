@@ -10,7 +10,7 @@ BUILD_DATE  = $(shell LC_ALL=C date -u "+%B %d, %Y" -d "$(LAST_CHANGE)")
 SPHINXOPTS := -D html_last_updated_fmt="$(BUILD_DATE)"
 
 %:
-	$@ --buildsystem=python_distutils --with python2,sphinxdoc,systemd
+	dh $@ --buildsystem=python_distutils --with python2,sphinxdoc,systemd
 
 override_dh_clean:
 	rm -rf build
