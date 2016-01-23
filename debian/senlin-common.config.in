@@ -1,0 +1,17 @@
+#!/bin/sh
+
+set -e
+
+. /usr/share/debconf/confmodule
+CONF=/etc/senlin/senlin.conf
+
+#PKGOS-INCLUDE#
+
+pkgos_var_user_group senlin
+pkgos_dbc_read_conf -pkg senlin-common ${CONF} database connection senlin $@
+pkgos_rabbit_read_conf ${CONF} oslo_messaging_rabbit senlin
+pkgos_read_admin_creds ${CONF} keystone_authtoken senlin
+
+db_go
+
+exit 0

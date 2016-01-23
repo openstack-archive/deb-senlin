@@ -1,0 +1,26 @@
+#!/bin/sh
+
+set -e
+
+CONF=/etc/senlin/senlin.conf
+
+#PKGOS-INCLUDE#
+
+if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
+	. /usr/share/debconf/confmodule
+	. /usr/share/dbconfig-common/dpkg/postinst
+
+	pkgos_var_user_group senlin
+
+	# Manage the configuration file
+	pkgos_write_new_conf senlin senlin.conf
+	pkgos_rabbit_write_conf ${CONF} oslo_messaging_rabbit senlin
+	pkgos_write_admin_creds ${CONF} keystone_authtoken senlin
+	db_get sahara/configure_db
+	if [ "$RET" = "true" ]; then
+		pkgos_dbc_postinst ${CONF} database connection senlin $@
+		su -s /bin/sh -c 'senlin-manage db_sync' senlin
+	fi
+fi
+
+#DEBHELPER#

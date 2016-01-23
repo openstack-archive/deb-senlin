@@ -1,0 +1,52 @@
+#!/usr/bin/make -f
+
+PYTHONS:=$(shell pyversions -vr)
+
+include /usr/share/openstack-pkg-tools/pkgos.make
+export OSLO_PACKAGE_VERSION=$(shell dpkg-parsechangelog | grep Version: | cut -d' ' -f2 | sed -e 's/^[[:digit:]]*://' -e 's/[-].*//' -e 's/~/.0/' | head -n 1)
+
+LAST_CHANGE = $(shell dpkg-parsechangelog -S Date)
+BUILD_DATE  = $(shell LC_ALL=C date -u "+%B %d, %Y" -d "$(LAST_CHANGE)")
+SPHINXOPTS := -D html_last_updated_fmt="$(BUILD_DATE)"
+
+%:
+	$@ --buildsystem=python_distutils --with python2,sphinxdoc,systemd
+
+override_dh_clean:
+	rm -rf build
+	rm -f debian/*.init debian/*.service debian/*.upstart
+	dh_clean
+
+override_dh_auto_build:
+	dh_auto_build
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func senlin-common.postinst
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func senlin-api.config
+	/usr/share/openstack-pkg-tools/pkgos_insert_include pkgos_func senlin-api.postinst
+
+override_dh_auto_test:
+ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
+	./run_tests.sh -N -P
+endif
+
+override_dh_sphinxdoc:
+ifeq (,$(findstring nodocs, $(DEB_BUILD_OPTIONS)))
+	PYTHONPATH=. sphinx-build $(SPHINXOPTS) -b html doc/source $(CURDIR)/debian/senlin-doc/usr/share/doc/senlin-doc/html
+	dh_sphinxdoc -O--buildsystem=python_distutils
+endif
+
+
+override_dh_auto_install:
+	python2.7 setup.py install --install-layout=deb --root $(CURDIR)/debian/tmp
+	PYTHONPATH=$(CURDIR)/debian/tmp oslo-config-generator --output-file $(CURDIR)/debian/senlin-common/usr/share/senlin-common/senlin.conf
+		--wrap-width 140 \
+		--namespace senlin.common.config \
+		--namespace senlin.api.common.wsgi \
+		--namespace senlin.engine.health_manager \
+		--namespace keystonemiddleware.auth_token \
+		--namespace oslo.db \
+		--namespace oslo.log \
+		--namespace oslo.messaging \
+		--namespace oslo.policy \
+		--namespace oslo.service.periodic_task \
+		--namespace oslo.service.service \
+		--namespace oslo.service.sslutils

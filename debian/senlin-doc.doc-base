@@ -1,0 +1,9 @@
+Document: senlin-doc
+Title: Senlin Documentation
+Author: OpenStack
+Abstract: Sphinx documentation for Senlin
+Section: Programming/Python
+
+Format: HTML
+Index: /usr/share/doc/senlin-doc/html/index.html
+Files: /usr/share/doc/senlin-doc/html/*

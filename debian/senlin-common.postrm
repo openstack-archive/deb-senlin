@@ -1,0 +1,13 @@
+#!/bin/sh
+
+set -e
+
+if [ "$1" = "purge" ] ; then
+	rm -f /etc/senlin/senlin.conf
+	rmdir --ignore-fail-on-non-empty /etc/senlin || true
+	rm -rf /var/log/senlin /var/lib/senlin
+fi
+
+#DEBHELPER#
+
+exit 0

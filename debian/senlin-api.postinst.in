@@ -1,0 +1,15 @@
+#!/bin/sh
+
+set -e
+
+#PKGOS-INCLUDE#
+
+if [ "$1" = "configure" ] ; then
+	. /usr/share/debconf/confmodule
+	pkgos_register_endpoint_postinst senlin senlin clustering "Senlin Clustering Service" 8778 ""
+	db_stop
+fi
+
+#DEBHELPER#
+
+exit 0
