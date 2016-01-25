@@ -95,7 +95,7 @@ Depends: python-babel,
          ${python:Depends},
 Description: clustering service for OpenStack clouds - Python 2.7
  Senlin is a clustering service for OpenStack clouds. It creates and operates
- clusters of homogenous objects exposed by other OpenStack services. The goal
+ clusters of homogeneous objects exposed by other OpenStack services. The goal
  is to make the orchestration of collections of similar objects easier.
  .
  Senlin provides RESTful APIs to users so that they can associate various
@@ -119,7 +119,7 @@ Depends: adduser,
          ${python:Depends},
 Description: clustering service for OpenStack clouds - common files
  Senlin is a clustering service for OpenStack clouds. It creates and operates
- clusters of homogenous objects exposed by other OpenStack services. The goal
+ clusters of homogeneous objects exposed by other OpenStack services. The goal
  is to make the orchestration of collections of similar objects easier.
  .
  Senlin provides RESTful APIs to users so that they can associate various
@@ -140,7 +140,7 @@ Depends: adduser,
          ${python:Depends},
 Description: clustering service for OpenStack clouds - API
  Senlin is a clustering service for OpenStack clouds. It creates and operates
- clusters of homogenous objects exposed by other OpenStack services. The goal
+ clusters of homogeneous objects exposed by other OpenStack services. The goal
  is to make the orchestration of collections of similar objects easier.
  .
  Senlin provides RESTful APIs to users so that they can associate various
@@ -161,7 +161,7 @@ Depends: adduser,
          ${python:Depends},
 Description: clustering service for OpenStack clouds - Engine
  Senlin is a clustering service for OpenStack clouds. It creates and operates
- clusters of homogenous objects exposed by other OpenStack services. The goal
+ clusters of homogeneous objects exposed by other OpenStack services. The goal
  is to make the orchestration of collections of similar objects easier.
  .
  Senlin provides RESTful APIs to users so that they can associate various
@@ -181,7 +181,7 @@ Depends: ${misc:Depends},
          ${sphinxdoc:Depends},
 Description: clustering service for OpenStack clouds - docs
  Senlin is a clustering service for OpenStack clouds. It creates and operates
- clusters of homogenous objects exposed by other OpenStack services. The goal
+ clusters of homogeneous objects exposed by other OpenStack services. The goal
  is to make the orchestration of collections of similar objects easier.
  .
  Senlin provides RESTful APIs to users so that they can associate various
