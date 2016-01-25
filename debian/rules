@@ -50,6 +50,7 @@ endif
 
 
 override_dh_auto_install:
+	rm -rf $(CURDIR)/debian/tmp
 	python2.7 setup.py install --install-layout=deb --root $(CURDIR)/debian/tmp
 	cp -auxf senlin/db/sqlalchemy/migrate_repo $(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages/senlin/db/sqlalchemy
 	mkdir -p $(CURDIR)/debian/senlin-common/usr/share/senlin-common
