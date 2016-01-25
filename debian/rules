@@ -51,6 +51,7 @@ endif
 
 override_dh_auto_install:
 	python2.7 setup.py install --install-layout=deb --root $(CURDIR)/debian/tmp
+	cp -auxf senlin/db/sqlalchemy/migrate_repo $(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages/senlin/db/sqlalchemy
 	mkdir -p $(CURDIR)/debian/senlin-common/usr/share/senlin-common
 	PYTHONPATH=$(CURDIR)/debian/tmp oslo-config-generator --output-file $(CURDIR)/debian/senlin-common/usr/share/senlin-common/senlin.conf \
 		--wrap-width 140 \
