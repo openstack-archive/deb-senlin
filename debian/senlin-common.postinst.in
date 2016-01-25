@@ -16,7 +16,7 @@ if [ "$1" = "configure" ] || [ "$1" = "reconfigure" ] ; then
 	pkgos_write_new_conf senlin senlin.conf
 	pkgos_rabbit_write_conf ${CONF} oslo_messaging_rabbit senlin
 	pkgos_write_admin_creds ${CONF} keystone_authtoken senlin
-	db_get sahara/configure_db
+	db_get senlin/configure_db
 	if [ "$RET" = "true" ]; then
 		pkgos_dbc_postinst ${CONF} database connection senlin $@
 		su -s /bin/sh -c 'senlin-manage db_sync' senlin
