@@ -67,3 +67,4 @@ override_dh_auto_install:
 		--namespace oslo.service.periodic_task \
 		--namespace oslo.service.service \
 		--namespace oslo.service.sslutils
+	sed -i 's/^[ \t#]*auth_protocol[ \t]*=.*/auth_protocol = http/' $(CURDIR)/debian/senlin-common/usr/share/senlin-common/senlin.conf
