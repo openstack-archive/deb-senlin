@@ -10,6 +10,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import mock
+from oslo_db.sqlalchemy import utils as sa_utils
 from oslo_utils import timeutils as tu
 
 from senlin.common import consts
@@ -80,6 +82,15 @@ class DBAPIPolicyTest(base.SenlinTestCase):
         res = db_api.policy_get(new_ctx, policy.id, project_safe=False)
         self.assertIsNotNone(res)
         self.assertEqual(policy.id, res.id)
+
+    def test_policy_get_admin_context(self):
+        data = self.new_policy_data()
+        policy = db_api.policy_create(self.ctx, data)
+
+        admin_ctx = utils.dummy_context(project='a-different-project',
+                                        is_admin=True)
+        res = db_api.policy_get(admin_ctx, policy.id, project_safe=True)
+        self.assertIsNotNone(res)
 
     def test_policy_get_not_found(self):
         retobj = db_api.policy_get(self.ctx, 'BogusID')
@@ -203,6 +214,21 @@ class DBAPIPolicyTest(base.SenlinTestCase):
         policies = db_api.policy_get_all(new_ctx, project_safe=False)
         self.assertEqual(2, len(policies))
 
+    def test_policy_get_all_admin_context(self):
+        specs = [
+            {'name': 'policy_short', 'cooldown': '10'},
+            {'name': 'policy_long', 'cooldown': '100'},
+        ]
+
+        for spec in specs:
+            data = self.new_policy_data(**spec)
+            db_api.policy_create(self.ctx, data)
+
+        admin_ctx = utils.dummy_context(project='a-different-project',
+                                        is_admin=True)
+        policies = db_api.policy_get_all(admin_ctx, project_safe=True)
+        self.assertEqual(2, len(policies))
+
     def test_policy_get_all_with_limit_marker(self):
         ids = ['policy1', 'policy2', 'policy3']
         for pid in ids:
@@ -234,13 +260,13 @@ class DBAPIPolicyTest(base.SenlinTestCase):
         policies = db_api.policy_get_all(self.ctx, limit=1, marker='policy1')
         self.assertEqual(1, len(policies))
 
-    def test_policy_get_all_used_sort_keys(self):
+    @mock.patch.object(sa_utils, 'paginate_query')
+    def test_policy_get_all_used_sort_keys(self, mock_paginate):
         ids = ['policy1', 'policy2', 'policy3']
         for pid in ids:
             data = self.new_policy_data(id=pid)
             db_api.policy_create(self.ctx, data)
 
-        mock_paginate = self.patchobject(db_api.utils, 'paginate_query')
         sort_keys = consts.POLICY_SORT_KEYS
         db_api.policy_get_all(self.ctx, sort=','.join(sort_keys))
 

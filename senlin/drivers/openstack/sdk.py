@@ -14,6 +14,7 @@
 SDK Client
 '''
 import functools
+from oslo_config import cfg
 from oslo_log import log as logging
 import six
 
@@ -36,16 +37,19 @@ def parse_exception(ex):
 
     if isinstance(ex, sdk_exc.HttpException):
         # some exceptions don't contain status_code
-        if ex.status_code is not None:
-            code = ex.status_code
+        if ex.http_status is not None:
+            code = ex.http_status
         message = ex.message
         data = {}
-        try:
-            data = jsonutils.loads(ex.details)
-        except Exception:
-            # Some exceptions don't have details record or
-            # are not in JSON format
-            pass
+        if ex.details is None:
+            data = ex.response.json()
+        else:
+            try:
+                data = jsonutils.loads(ex.details)
+            except Exception:
+                # Some exceptions don't have details record or
+                # are not in JSON format
+                pass
 
         # try dig more into the exception record
         # usually 'data' has two types of format :
@@ -71,7 +75,8 @@ def parse_exception(ex):
         # Exceptions that are not captured by SDK
         code = ex.errno
         message = six.text_type(ex)
-    elif isinstance(ex, Exception):
+    else:
+        # This could be a generic exception or something we don't understand
         message = six.text_type(ex)
 
     raise senlin_exc.InternalError(code=code, message=message)
@@ -105,6 +110,8 @@ def create_connection(params=None):
     if 'region_name' in params:
         prof.set_region(prof.ALL, params['region_name'])
         params.pop('region_name')
+    elif cfg.CONF.default_region_name:
+        prof.set_region(prof.ALL, cfg.CONF.default_region_name)
     try:
         conn = connection.Connection(profile=prof, user_agent=USER_AGENT,
                                      auth_plugin=auth_plugin, **params)

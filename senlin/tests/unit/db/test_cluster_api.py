@@ -12,6 +12,7 @@
 
 import mock
 
+from oslo_db.sqlalchemy import utils as sa_utils
 from oslo_utils import timeutils as tu
 
 from senlin.common import exception
@@ -72,6 +73,15 @@ class DBAPIClusterTest(base.SenlinTestCase):
 
         cluster = db_api.cluster_get(self.ctx, cluster.id)
         self.assertIsNone(cluster)
+
+    def test_cluster_get_with_admin_context(self):
+        cluster = shared.create_cluster(self.ctx, self.profile)
+        admin_ctx = utils.dummy_context(project='another-project',
+                                        is_admin=True)
+        ret_cluster = db_api.cluster_get(admin_ctx, cluster.id,
+                                         project_safe=True)
+        self.assertEqual(cluster.id, ret_cluster.id)
+        self.assertEqual('db_test_cluster_name', ret_cluster.name)
 
     def test_cluster_get_by_name(self):
         cluster = shared.create_cluster(self.ctx, self.profile)
@@ -199,22 +209,20 @@ class DBAPIClusterTest(base.SenlinTestCase):
         clusters = db_api.cluster_get_all(self.ctx, project_safe=False)
         self.assertEqual(5, len(clusters))
 
-    def test_cluster_get_all_show_nested(self):
-        cluster1 = shared.create_cluster(self.ctx, self.profile,
-                                         name='cluster1')
-        cluster2 = shared.create_cluster(self.ctx, self.profile,
-                                         name='cluster2',
-                                         parent=cluster1.id)
+    def test_cluster_get_all_with_admin_context(self):
+        values = [
+            {'project': UUID1},
+            {'project': UUID1},
+            {'project': UUID2},
+            {'project': UUID2},
+            {'project': UUID2},
+        ]
+        [shared.create_cluster(self.ctx, self.profile, **v) for v in values]
 
-        cl_db = db_api.cluster_get_all(self.ctx)
-        self.assertEqual(1, len(cl_db))
-        self.assertEqual(cluster1.id, cl_db[0].id)
-
-        cl_db = db_api.cluster_get_all(self.ctx, show_nested=True)
-        self.assertEqual(2, len(cl_db))
-        cl_ids = [s.id for s in cl_db]
-        self.assertIn(cluster1.id, cl_ids)
-        self.assertIn(cluster2.id, cl_ids)
+        admin_ctx = utils.dummy_context(project='another-project',
+                                        is_admin=True)
+        clusters = db_api.cluster_get_all(admin_ctx, project_safe=True)
+        self.assertEqual(5, len(clusters))
 
     def test_cluster_get_all_with_filters(self):
         shared.create_cluster(self.ctx, self.profile, name='foo')
@@ -261,9 +269,9 @@ class DBAPIClusterTest(base.SenlinTestCase):
         self.assertEqual(clusters[1].id, st_db[1].id)
         self.assertEqual(clusters[2].id, st_db[2].id)
 
-    @mock.patch.object(db_api.utils, 'paginate_query')
+    @mock.patch.object(sa_utils, 'paginate_query')
     def test_cluster_get_all_filters_sort_keys(self, mock_paginate):
-        sort = 'name,status,created_at,updated_at,parent'
+        sort = 'name,status,created_at,updated_at'
         db_api.cluster_get_all(self.ctx, sort=sort)
 
         args = mock_paginate.call_args[0]
@@ -344,15 +352,20 @@ class DBAPIClusterTest(base.SenlinTestCase):
         self.assertEqual(5, db_api.cluster_count_all(self.ctx,
                                                      project_safe=False))
 
-    def test_cluster_count_all_show_nested(self):
-        cluster1 = shared.create_cluster(self.ctx, self.profile, name='c1')
-        shared.create_cluster(self.ctx, self.profile, name='c2',
-                              parent=cluster1.id)
+    def test_cluster_count_all_with_admin_context(self):
+        values = [
+            {'project': UUID1},
+            {'project': UUID1},
+            {'project': UUID2},
+            {'project': UUID2},
+            {'project': UUID2},
+        ]
+        [shared.create_cluster(self.ctx, self.profile, **v) for v in values]
 
-        results = db_api.cluster_count_all(self.ctx)
-        self.assertEqual(1, results)
-        results = db_api.cluster_count_all(self.ctx, show_nested=True)
-        self.assertEqual(2, results)
+        admin_ctx = utils.dummy_context(project='another-project',
+                                        is_admin=True)
+        self.assertEqual(5, db_api.cluster_count_all(admin_ctx,
+                                                     project_safe=True))
 
     def test_cluster_count_all_with_filters(self):
         shared.create_cluster(self.ctx, self.profile, name='foo')

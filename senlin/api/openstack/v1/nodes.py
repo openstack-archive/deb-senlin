@@ -10,21 +10,21 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-'''
+"""
 Node endpoint for Senlin v1 ReST API.
-'''
+"""
 
 from webob import exc
 
 from senlin.api.common import util
+from senlin.api.common import wsgi
 from senlin.common import consts
 from senlin.common.i18n import _
 from senlin.common import utils
-from senlin.rpc import client as rpc_client
 
 
 class NodeData(object):
-    '''The data accompanying a PUT/POST request to create/update a node.'''
+    """The data accompanying a PUT/POST request to create/update a node."""
 
     PARAMS = (consts.NODE_NAME, consts.NODE_CLUSTER_ID,
               consts.NODE_PROFILE_ID, consts.NODE_ROLE,
@@ -53,31 +53,34 @@ class NodeData(object):
         return self.data.get(consts.NODE_METADATA, None)
 
 
-class NodeController(object):
-    '''WSGI controller for nodes resource in Senlin v1 API.'''
+class NodeController(wsgi.Controller):
+    """WSGI controller for nodes resource in Senlin v1 API."""
 
     REQUEST_SCOPE = 'nodes'
 
-    def __init__(self, options):
-        self.options = options
-        self.rpc_client = rpc_client.EngineClient()
-
-    def default(self, req, **args):
-        raise exc.HTTPNotFound()
+    SUPPORTED_ACTIONS = (
+        NODE_CHECK, NODE_RECOVER
+    ) = (
+        'check', 'recover'
+    )
 
     @util.policy_enforce
     def index(self, req):
         filter_whitelist = {
-            'status': 'mixed',
-            'name': 'mixed',
+            consts.NODE_NAME: 'mixed',
+            consts.NODE_STATUS: 'mixed',
         }
         param_whitelist = {
-            'cluster_id': 'single',
-            'limit': 'single',
-            'marker': 'single',
-            'sort': 'single',
-            'global_project': 'single',
+            consts.NODE_CLUSTER_ID: 'single',
+            consts.PARAM_LIMIT: 'single',
+            consts.PARAM_MARKER: 'single',
+            consts.PARAM_SORT: 'single',
+            consts.PARAM_GLOBAL_PROJECT: 'single',
         }
+        for key in req.params.keys():
+            if (key not in param_whitelist.keys() and key not in
+                    filter_whitelist.keys()):
+                raise exc.HTTPBadRequest(_('Invalid parameter %s') % key)
         params = util.get_allowed_params(req.params, param_whitelist)
         filters = util.get_allowed_params(req.params, filter_whitelist)
 
@@ -148,16 +151,51 @@ class NodeController(object):
 
         node = self.rpc_client.node_update(req.context, node_id, name,
                                            profile_id, role, metadata)
+        action_id = node.pop('action')
         result = {
             'node': node,
-            'location': '/nodes/%s' % node['id'],
+            'location': '/actions/%s' % action_id,
         }
         return result
 
     @util.policy_enforce
     def delete(self, req, node_id):
-        force = 'force' in req.params
-        node = self.rpc_client.node_delete(req.context, node_id, force=force,
-                                           cast=False)
-        result = {'location': '/nodes/%s' % node}
+        res = self.rpc_client.node_delete(req.context, node_id, cast=False)
+        action_id = res.pop('action')
+        result = {'location': '/actions/%s' % action_id}
         return result
+
+    @util.policy_enforce
+    def action(self, req, node_id, body=None):
+        """Perform specified action on a node."""
+
+        body = body or {}
+        if len(body) == 0:
+            raise exc.HTTPBadRequest(_('No action specified.'))
+
+        if len(body) > 1:
+            raise exc.HTTPBadRequest(_('Multiple actions specified.'))
+
+        this_action = list(body.keys())[0]
+        if this_action not in self.SUPPORTED_ACTIONS:
+            msg = _('Unrecognized action "%s" specified') % this_action
+            raise exc.HTTPBadRequest(msg)
+
+        if this_action == self.NODE_CHECK:
+            params = body.get(this_action)
+            if not isinstance(params, dict):
+                msg = _("The params provided is not a map.")
+                raise exc.HTTPBadRequest(msg)
+            res = self.rpc_client.node_check(req.context, node_id,
+                                             params=params)
+        else:    # self.NODE_RECOVER
+            params = body.get(this_action)
+            if not isinstance(params, dict):
+                msg = _("The params provided is not a map.")
+                raise exc.HTTPBadRequest(msg)
+            res = self.rpc_client.node_recover(req.context, node_id,
+                                               params=params)
+
+        location = {'location': '/actions/%s' % res['action']}
+        res.update(location)
+        return res

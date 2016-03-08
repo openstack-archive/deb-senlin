@@ -10,43 +10,44 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+"""
+Event endpoint for Senlin v1 ReST API.
+"""
 from webob import exc
 
 from senlin.api.common import util
+from senlin.api.common import wsgi
 from senlin.common import consts
+from senlin.common.i18n import _
 from senlin.common import utils
-from senlin.rpc import client as rpc_client
 
 
-class EventController(object):
-    '''WSGI controller for events in Senlin v1 API.'''
+class EventController(wsgi.Controller):
+    """WSGI controller for events in Senlin v1 API."""
 
     # Define request scope (must match what is in policy.json)
     REQUEST_SCOPE = 'events'
 
-    def __init__(self, options):
-        self.options = options
-        self.rpc_client = rpc_client.EngineClient()
-
-    def default(self, req, **args):
-        raise exc.HTTPNotFound()
-
     @util.policy_enforce
     def index(self, req):
         filter_whitelist = {
-            'obj_name': 'mixed',
-            'obj_type': 'mixed',
-            'obj_id': 'mixed',
-            'cluster_id': 'mixed',
-            'action': 'mixed',
-            'level': 'mixed',
+            consts.EVENT_OBJ_NAME: 'mixed',
+            consts.EVENT_OBJ_TYPE: 'mixed',
+            consts.EVENT_OBJ_ID: 'mixed',
+            consts.EVENT_CLUSTER_ID: 'mixed',
+            consts.EVENT_ACTION: 'mixed',
+            consts.EVENT_LEVEL: 'mixed',
         }
         param_whitelist = {
-            'limit': 'single',
-            'marker': 'single',
-            'sort': 'single',
-            'global_project': 'single',
+            consts.PARAM_LIMIT: 'single',
+            consts.PARAM_MARKER: 'single',
+            consts.PARAM_SORT: 'single',
+            consts.PARAM_GLOBAL_PROJECT: 'single',
         }
+        for key in req.params.keys():
+            if (key not in param_whitelist.keys() and key not in
+                    filter_whitelist.keys()):
+                raise exc.HTTPBadRequest(_('Invalid parameter %s') % key)
         params = util.get_allowed_params(req.params, param_whitelist)
         filters = util.get_allowed_params(req.params, filter_whitelist)
 

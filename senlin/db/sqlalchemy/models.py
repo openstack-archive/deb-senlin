@@ -28,24 +28,13 @@ BASE = declarative.declarative_base()
 UUID4 = uuidutils.generate_uuid
 
 
-def get_session():
-    from senlin.db.sqlalchemy import api as db_api
-    return db_api.get_session()
-
-
 class TimestampMixin(object):
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
 
 
-class SenlinBase(models.ModelBase):
-    """Base class for Senlin Models."""
-    __table_args__ = {'mysql_engine': 'InnoDB'}
-
-
 class Profile(BASE, TimestampMixin, models.ModelBase):
-    """A profile managed by the Senlin engine."""
-
+    """Profile objects."""
     __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'profile'
 
@@ -62,8 +51,7 @@ class Profile(BASE, TimestampMixin, models.ModelBase):
 
 
 class Policy(BASE, TimestampMixin, models.ModelBase):
-    """A policy managed by the Senlin engine."""
-
+    """Policy objects."""
     __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'policy'
 
@@ -80,8 +68,7 @@ class Policy(BASE, TimestampMixin, models.ModelBase):
 
 
 class Cluster(BASE, TimestampMixin, models.ModelBase):
-    """Represents a cluster created by the Senlin engine."""
-
+    """Cluster objects."""
     __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'cluster'
 
@@ -108,7 +95,7 @@ class Cluster(BASE, TimestampMixin, models.ModelBase):
 
 
 class Node(BASE, TimestampMixin, models.ModelBase):
-    """Represents a Node created by the Senlin engine."""
+    """Node objects."""
 
     __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'node'
@@ -132,12 +119,9 @@ class Node(BASE, TimestampMixin, models.ModelBase):
     data = Column(types.Dict)
 
 
-class ClusterLock(BASE, SenlinBase):
-    """Store cluster locks for actions performed by multiple workers.
-
-    Worker threads are able to grab this lock
-    """
-
+class ClusterLock(BASE, models.ModelBase):
+    """Cluster locks for actions."""
+    __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'cluster_lock'
 
     cluster_id = Column(String(36), primary_key=True, nullable=False)
@@ -145,21 +129,18 @@ class ClusterLock(BASE, SenlinBase):
     semaphore = Column(Integer)
 
 
-class NodeLock(BASE, SenlinBase):
-    """Store node locks for actions performed by multiple workers.
-
-    Worker threads are able to grab this lock
-    """
-
+class NodeLock(BASE, models.ModelBase):
+    """Node locks for actions."""
+    __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'node_lock'
 
     node_id = Column(String(36), primary_key=True, nullable=False)
     action_id = Column(String(36))
 
 
-class ClusterPolicies(BASE, SenlinBase):
-    '''Association between clusters and policies.'''
-
+class ClusterPolicies(BASE, models.ModelBase):
+    """Association between clusters and policies."""
+    __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'cluster_policy'
 
     id = Column('id', String(36), primary_key=True, default=lambda: UUID4())
@@ -173,9 +154,22 @@ class ClusterPolicies(BASE, SenlinBase):
     last_op = Column(DateTime)
 
 
-class Receiver(BASE, TimestampMixin, models.ModelBase):
-    """Represents a receiver associated with a Senlin cluster."""
+class HealthRegistry(BASE, models.ModelBase):
+    """Clusters registered for health management."""
 
+    __table_args__ = {'mysql_engine': 'InnoDB'}
+    __tablename__ = 'health_registry'
+
+    id = Column('id', String(36), primary_key=True, default=lambda: UUID4())
+    cluster_id = Column(String(36), ForeignKey('cluster.id'), nullable=False)
+    check_type = Column('check_type', String(255))
+    interval = Column(Integer)
+    params = Column(types.Dict)
+    engine_id = Column('engine_id', String(36))
+
+
+class Receiver(BASE, TimestampMixin, models.ModelBase):
+    """Receiver objects associated with clusters."""
     __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'receiver'
 
@@ -193,9 +187,9 @@ class Receiver(BASE, TimestampMixin, models.ModelBase):
     channel = Column(types.Dict)
 
 
-class Credential(BASE, SenlinBase):
-    '''A table for storing user credentials.'''
-
+class Credential(BASE, models.ModelBase):
+    """User credentials for keystone trusts etc."""
+    __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'credential'
 
     user = Column(String(32), primary_key=True, nullable=False)
@@ -204,9 +198,9 @@ class Credential(BASE, SenlinBase):
     data = Column(types.Dict)
 
 
-class ActionDependency(BASE, SenlinBase):
-    """A table for recording action dependencies."""
-
+class ActionDependency(BASE, models.ModelBase):
+    """Action dependencies."""
+    __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'dependency'
 
     id = Column('id', String(36), primary_key=True, default=lambda: UUID4())
@@ -217,8 +211,7 @@ class ActionDependency(BASE, SenlinBase):
 
 
 class Action(BASE, TimestampMixin, models.ModelBase):
-    """An action persisted in the Senlin database."""
-
+    """Action objects."""
     __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'action'
 
@@ -240,11 +233,14 @@ class Action(BASE, TimestampMixin, models.ModelBase):
     inputs = Column(types.Dict)
     outputs = Column(types.Dict)
     data = Column(types.Dict)
+    user = Column(String(32))
+    project = Column(String(32))
+    domain = Column(String(32))
 
 
-class Event(BASE, SenlinBase):
-    """Represents an event generated by the Senin engine."""
-
+class Event(BASE, models.ModelBase):
+    """Events generated by the Senin engine."""
+    __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'event'
 
     id = Column('id', String(36), primary_key=True, default=lambda: UUID4())
@@ -264,13 +260,13 @@ class Event(BASE, SenlinBase):
 
 
 class Service(BASE, TimestampMixin, models.ModelBase):
-
+    """Senlin service engine registry."""
     __table_args__ = {'mysql_engine': 'InnoDB'}
     __tablename__ = 'service'
 
     id = Column('id', String(36), primary_key=True, nullable=False)
-    host = Column(String(255), nullable=False)
-    binary = Column(String(255), nullable=False)
-    topic = Column(String(255), nullable=False)
+    host = Column(String(255))
+    binary = Column(String(255))
+    topic = Column(String(255))
     disabled = Column(Boolean, default=False)
     disabled_reason = Column(String(255))

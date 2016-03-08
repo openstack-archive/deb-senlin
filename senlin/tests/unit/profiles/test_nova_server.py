@@ -158,7 +158,8 @@ class TestNovaServerProfile(base.SenlinTestCase):
         test_server.cluster_id = 'FAKE_CLUSTER_ID'
         test_server.data = {
             'placement': {
-                'zone': 'AZ1'
+                'zone': 'AZ1',
+                'servergroup': 'SERVER_GROUP_1'
             }
         }
         image = mock.Mock()
@@ -212,7 +213,8 @@ class TestNovaServerProfile(base.SenlinTestCase):
                 'contents': 'foo'
             }],
             scheduler_hints={
-                'same_host': 'HOST_ID'
+                'same_host': 'HOST_ID',
+                'group': 'SERVER_GROUP_1',
             },
             security_groups=['HIGH_SECURITY_GROUP'],
             user_data='FAKE_USER_DATA',
@@ -956,6 +958,8 @@ class TestNovaServerProfile(base.SenlinTestCase):
                                                           '456',
                                                           'FAKE_SERVER_NAME',
                                                           'adminpass')
+        novaclient.wait_for_server.assert_called_once_with('FAKE_ID',
+                                                           'ACTIVE')
 
     def test_update_image_old_image_is_none(self):
         obj = mock.Mock()
@@ -983,6 +987,8 @@ class TestNovaServerProfile(base.SenlinTestCase):
                                                           '456',
                                                           'FAKE_SERVER_NAME',
                                                           'adminpass')
+        novaclient.wait_for_server.assert_called_once_with('FAKE_ID',
+                                                           'ACTIVE')
 
     def test_update_image_new_image_is_none(self):
         obj = mock.Mock()
@@ -1224,72 +1230,57 @@ class TestNovaServerProfile(base.SenlinTestCase):
         nc.server_get.assert_called_once_with('FAKE_ID')
 
     def test_do_join_successful(self):
-        # Test normal path
         nc = mock.Mock()
         profile = server.ServerProfile('t', self.spec)
-        profile._novaclient = nc
+        self.patchobject(profile, 'nova', return_value=nc)
+
+        cluster_id = "FAKE_CLUSTER_ID"
         nc.server_metadata_get.return_value = {'FOO': 'BAR'}
-        nc.server_metadata_update.return_value = 'Boom'
+        nc.server_metadata_update.return_value = {'cluster': cluster_id}
 
         obj = mock.Mock()
         obj.physical_id = 'FAKE_ID'
-        cluster_id = "FAKE_CLUSTER_ID"
 
         res = profile.do_join(obj, cluster_id)
-        self.assertEqual('Boom', res)
-        nc.server_metadata_get.assert_called_once_with(server_id='FAKE_ID')
+
+        self.assertTrue(res)
+        nc.server_metadata_get.assert_called_once_with('FAKE_ID')
         nc.server_metadata_update.assert_called_once_with(
-            FOO='BAR', cluster='FAKE_CLUSTER_ID')
+            'FAKE_ID', {'cluster': 'FAKE_CLUSTER_ID', 'FOO': 'BAR'})
 
     def test_do_join_server_not_created(self):
         # Test path where server not specified
         profile = server.ServerProfile('t', self.spec)
-        obj = mock.Mock()
-        obj.physical_id = None
+        obj = mock.Mock(physical_id=None)
 
         res = profile.do_join(obj, 'FAKE_CLUSTER_ID')
-        self.assertEqual({}, res)
+
+        self.assertFalse(res)
 
     def test_do_leave_successful(self):
         # Test normal path
         nc = mock.Mock()
         profile = server.ServerProfile('t', self.spec)
-        profile._novaclient = nc
-        nc.server_metadata_get.return_value = {'FOO': 'BAR', 'cluster': 'CLS'}
-        nc.server_metadata_update.return_value = 'Boom'
+        mock_nova = self.patchobject(profile, 'nova', return_value=nc)
+
+        nc.server_metadata_delete.return_value = None
 
         obj = mock.Mock()
         obj.physical_id = 'FAKE_ID'
-        obj.cluster_id = 'FAKE_CLUSTER_ID'
 
         res = profile.do_leave(obj)
-        self.assertEqual('Boom', res)
-        nc.server_metadata_get.assert_called_once_with(server_id='FAKE_ID')
-        nc.server_metadata_update.assert_called_once_with(FOO='BAR')
+
+        self.assertTrue(res)
+        nc.server_metadata_delete.assert_called_once_with('FAKE_ID', 'cluster')
+        mock_nova.assert_called_once_with(obj)
 
     def test_do_leave_no_physical_id(self):
-        # Test path where server not specified
         profile = server.ServerProfile('t', self.spec)
-        profile._novaclient = mock.Mock()
-        obj = mock.Mock()
-        obj.physical_id = None
-        self.assertIsNone(profile.do_leave(obj))
-
-    def test_do_leave_not_in_cluster(self):
-        # Test path where node is not in cluster
-        nc = mock.Mock()
-        profile = server.ServerProfile('t', self.spec)
-        profile._novaclient = nc
-        nc.server_metadata_get.return_value = {'FOO': 'BAR'}
-        nc.server_metadata_update.return_value = 'Boom'
-
-        obj = mock.Mock()
-        obj.physical_id = 'FAKE_ID'
+        obj = mock.Mock(physical_id=None)
 
         res = profile.do_leave(obj)
-        self.assertEqual('Boom', res)
-        nc.server_metadata_get.assert_called_once_with(server_id='FAKE_ID')
-        nc.server_metadata_update.assert_called_once_with(FOO='BAR')
+
+        self.assertFalse(res)
 
     def test_do_rebuild(self):
         obj = mock.Mock()
@@ -1314,6 +1305,7 @@ class TestNovaServerProfile(base.SenlinTestCase):
                                                   '123',
                                                   'FAKE_SERVER_NAME',
                                                   'adminpass')
+        nc.wait_for_server.assert_called_once_with('FAKE_ID', 'ACTIVE')
         self.assertTrue(res)
 
     def test_do_rebuild_no_serverfind(self):

@@ -10,6 +10,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import mock
+from oslo_db.sqlalchemy import utils as sa_utils
 from oslo_utils import timeutils as tu
 import six
 
@@ -50,6 +52,13 @@ class DBAPIProfileTest(base.SenlinTestCase):
         res = db_api.profile_get(new_ctx, profile.id, project_safe=False)
         self.assertIsNotNone(res)
         self.assertEqual(profile.id, res.id)
+
+    def test_profile_get_admin_context(self):
+        profile = shared.create_profile(self.ctx)
+        admin_ctx = utils.dummy_context(project='a-different-project',
+                                        is_admin=True)
+        res = db_api.profile_get(admin_ctx, profile.id, project_safe=True)
+        self.assertIsNotNone(res)
 
     def test_profile_get_not_found(self):
         profile = db_api.profile_get(self.ctx, 'BogusProfileID')
@@ -162,6 +171,16 @@ class DBAPIProfileTest(base.SenlinTestCase):
         profiles = db_api.profile_get_all(new_ctx, project_safe=False)
         self.assertEqual(2, len(profiles))
 
+    def test_profile_get_all_admin_context(self):
+        ids = ['profile1', 'profile2']
+        for pid in ids:
+            shared.create_profile(self.ctx, id=pid)
+
+        admin_ctx = utils.dummy_context(project='a-different-project',
+                                        is_admin=True)
+        profiles = db_api.profile_get_all(admin_ctx, project_safe=True)
+        self.assertEqual(2, len(profiles))
+
     def test_profile_get_all_with_limit_marker(self):
         ids = ['profile1', 'profile2', 'profile3']
         for pid in ids:
@@ -192,12 +211,12 @@ class DBAPIProfileTest(base.SenlinTestCase):
         profiles = db_api.profile_get_all(self.ctx, limit=1, marker='profile1')
         self.assertEqual(1, len(profiles))
 
-    def test_profile_get_all_used_sort_keys(self):
+    @mock.patch.object(sa_utils, 'paginate_query')
+    def test_profile_get_all_used_sort_keys(self, mock_paginate):
         ids = ['profile1', 'profile2', 'profile3']
         for pid in ids:
             shared.create_profile(self.ctx, id=pid)
 
-        mock_paginate = self.patchobject(db_api.utils, 'paginate_query')
         sort_keys = consts.PROFILE_SORT_KEYS
         db_api.profile_get_all(self.ctx, sort=','.join(sort_keys))
 

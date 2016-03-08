@@ -10,6 +10,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import types
+
 import mock
 from openstack import connection
 from openstack import profile
@@ -27,14 +29,14 @@ class OpenStackSDKTest(base.SenlinTestCase):
     def setUp(self):
         super(OpenStackSDKTest, self).setUp()
 
-    def test_parser_exception_http_exception_with_details(self):
+    def test_parse_exception_http_exception_with_details(self):
         details = jsonutils.dumps({
             'error': {
                 'code': 404,
                 'message': 'Resource BAR is not found.'
             }
         })
-        raw = sdk.exc.ResourceNotFound('A message', details, 404)
+        raw = sdk.exc.ResourceNotFound('A message', details, http_status=404)
         ex = self.assertRaises(senlin_exc.InternalError,
                                sdk.parse_exception, raw)
 
@@ -54,17 +56,17 @@ class OpenStackSDKTest(base.SenlinTestCase):
         self.assertEqual(403, ex.code)
         self.assertEqual('Quota exceeded for instances.', six.text_type(ex))
 
-    def test_parser_exception_http_exception_no_details(self):
+    def test_parse_exception_http_exception_no_details(self):
         details = "An error message"
 
-        raw = sdk.exc.ResourceNotFound('A message.', details, 404)
+        raw = sdk.exc.ResourceNotFound('A message.', details, http_status=404)
         ex = self.assertRaises(senlin_exc.InternalError,
                                sdk.parse_exception, raw)
 
         self.assertEqual(404, ex.code)
         self.assertEqual('A message.', six.text_type(ex))
 
-    def test_parser_exception_http_exception_code_displaced(self):
+    def test_parse_exception_http_exception_code_displaced(self):
         details = jsonutils.dumps({
             'code': 400,
             'error': {
@@ -72,14 +74,15 @@ class OpenStackSDKTest(base.SenlinTestCase):
             }
         })
 
-        raw = sdk.exc.HttpException('A message.', details)
+        raw = sdk.exc.HttpException(message='A message.', details=details,
+                                    http_status=400)
         ex = self.assertRaises(senlin_exc.InternalError,
                                sdk.parse_exception, raw)
 
         self.assertEqual(400, ex.code)
         self.assertEqual('Resource BAR is in error state.', six.text_type(ex))
 
-    def test_parser_exception_sdk_exception(self):
+    def test_parse_exception_sdk_exception(self):
         raw = sdk.exc.InvalidResponse('INVALID')
 
         ex = self.assertRaises(senlin_exc.InternalError,
@@ -88,7 +91,7 @@ class OpenStackSDKTest(base.SenlinTestCase):
         self.assertEqual(500, ex.code)
         self.assertEqual('InvalidResponse', six.text_type(ex))
 
-    def test_parser_exception_request_exception(self):
+    def test_parse_exception_request_exception(self):
         raw = req_exc.HTTPError(401, 'ERROR')
 
         ex = self.assertRaises(senlin_exc.InternalError,
@@ -97,7 +100,7 @@ class OpenStackSDKTest(base.SenlinTestCase):
         self.assertEqual(401, ex.code)
         self.assertEqual('[Errno 401] ERROR', ex.message)
 
-    def test_parser_exception_other_exceptions(self):
+    def test_parse_exception_other_exceptions(self):
         raw = Exception('Unknown Error')
 
         ex = self.assertRaises(senlin_exc.InternalError,
@@ -108,11 +111,12 @@ class OpenStackSDKTest(base.SenlinTestCase):
 
     def test_translate_exception_wrapper(self):
 
-        test_func = mock.Mock()
-        test_func.__name__ = 'test_func'
+        @sdk.translate_exception
+        def test_func(driver):
+            return driver.__name__
 
         res = sdk.translate_exception(test_func)
-        self.assertEqual('function', res.__class__.__name__)
+        self.assertEqual(types.FunctionType, type(res))
 
     def test_translate_exception_with_exception(self):
 

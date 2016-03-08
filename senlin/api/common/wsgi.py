@@ -25,7 +25,6 @@ import time
 import eventlet
 from eventlet.green import socket
 from eventlet.green import ssl
-import eventlet.greenio
 import eventlet.wsgi
 import functools
 from oslo_config import cfg
@@ -33,11 +32,11 @@ import oslo_i18n
 from oslo_log import log as logging
 from oslo_utils import importutils
 from paste import deploy
-import routes
-import routes.middleware
+from routes import middleware
 import six
-import webob.dec
-import webob.exc
+import webob
+from webob import dec as webob_dec
+from webob import exc
 
 from senlin.api.common import serializers
 from senlin.common import exception
@@ -45,11 +44,13 @@ from senlin.common.i18n import _
 from senlin.common.i18n import _LE
 from senlin.common.i18n import _LI
 from senlin.common.i18n import _LW
+from senlin.rpc import client as rpc_client
 
 
 LOG = logging.getLogger(__name__)
 URL_LENGTH_LIMIT = 50000
 
+# senlin_api, api opts
 api_opts = [
     cfg.IPOpt('bind_host', default='0.0.0.0',
               help=_('Address to bind the server. Useful when '
@@ -81,6 +82,15 @@ api_group = cfg.OptGroup('senlin_api')
 cfg.CONF.register_group(api_group)
 cfg.CONF.register_opts(api_opts, group=api_group)
 
+# Paste-deploy, paste-deploy
+paste_deploy_group = cfg.OptGroup('paste_deploy')
+paste_deploy_opts = [
+    cfg.StrOpt('api_paste_config', default="api-paste.ini",
+               help=_("The API paste config file to use."))]
+cfg.CONF.register_group(paste_deploy_group)
+cfg.CONF.register_opts(paste_deploy_opts, group=paste_deploy_group)
+
+# eventlet_opts, eventlet
 wsgi_eventlet_opts = [
     cfg.BoolOpt('wsgi_keep_alive', default=True,
                 help=_("If false, closes the client socket explicitly.")),
@@ -94,20 +104,6 @@ wsgi_eventlet_group = cfg.OptGroup('eventlet_opts')
 cfg.CONF.register_group(wsgi_eventlet_group)
 cfg.CONF.register_opts(wsgi_eventlet_opts, group=wsgi_eventlet_group)
 
-webhook_opts = [
-    cfg.StrOpt('host',
-               default=socket.gethostname(),
-               help=_('Address for invoking webhooks. It is useful for cases '
-                      'where proxies are used for triggering webhooks. '
-                      'Default to the hostname of the API node.')),
-    cfg.PortOpt('port', default=8778,
-                help=_('The port on which a webhook will be invoked. Useful '
-                       'when service is running behind a proxy.'))
-]
-webhook_group = cfg.OptGroup('webhook')
-cfg.CONF.register_group(webhook_group)
-cfg.CONF.register_opts(webhook_opts, group=webhook_group)
-
 json_size_opt = cfg.IntOpt('max_json_body_size', default=1048576,
                            help=_('Maximum raw byte size of JSON request body.'
                                   ' Should be larger than max_template_size.'))
@@ -116,8 +112,9 @@ cfg.CONF.register_opt(json_size_opt)
 
 def list_opts():
     yield None, [json_size_opt]
-    yield 'senlin_api', api_opts
-    yield 'eventlet_opts', wsgi_eventlet_opts
+    yield paste_deploy_group.name, paste_deploy_opts
+    yield api_group.name, api_opts
+    yield wsgi_eventlet_group.name, wsgi_eventlet_opts
 
 
 def get_bind_addr(conf, default_port=None):
@@ -168,24 +165,12 @@ def get_socket(conf, default_port):
     return sock
 
 
-class WritableLogger(object):
-    """A thin wrapper that responds to `write` and logs."""
-
-    def __init__(self, LOG, level=std_logging.DEBUG):
-        self.LOG = LOG
-        self.level = level
-
-    def write(self, msg):
-        self.LOG.log(self.level, msg.rstrip("\n"))
-
-
 class Server(object):
     """Server class to manage multiple WSGI sockets and applications."""
 
     def __init__(self, name, conf, threads=1000):
         os.umask(0o27)  # ensure files are created with the correct privileges
         self._logger = logging.getLogger("eventlet.wsgi.server")
-        self._wsgi_logger = WritableLogger(self._logger)
         self.name = name
         self.threads = threads
         self.children = set()
@@ -453,7 +438,7 @@ class Server(object):
                 self.sock, self.application,
                 custom_pool=self.pool,
                 url_length_limit=URL_LENGTH_LIMIT,
-                log=self._wsgi_logger,
+                log=self._logger,
                 debug=cfg.CONF.debug,
                 keepalive=cfg.CONF.eventlet_opts.wsgi_keep_alive,
                 socket_timeout=socket_timeout)
@@ -469,7 +454,7 @@ class Server(object):
         LOG.info(_LI("Starting single process server"))
         eventlet.wsgi.server(sock, application, custom_pool=self.pool,
                              url_length_limit=URL_LENGTH_LIMIT,
-                             log=self._wsgi_logger, debug=cfg.CONF.debug)
+                             log=self._logger, debug=cfg.CONF.debug)
 
 
 class Middleware(object):
@@ -500,7 +485,7 @@ class Middleware(object):
         """Customize the response."""
         return response
 
-    @webob.dec.wsgify
+    @webob_dec.wsgify
     def __call__(self, request):
         response = self.process_request(request)
         if response:
@@ -512,7 +497,7 @@ class Middleware(object):
 class Debug(Middleware):
     """Helper class that can be inserted into any WSGI application chain."""
 
-    @webob.dec.wsgify
+    @webob_dec.wsgify
     def __call__(self, req):
         print(("*" * 40) + " REQUEST ENVIRON")
         for key, value in req.environ.items():
@@ -545,31 +530,6 @@ def debug_filter(app, conf, **local_conf):
     return Debug(app)
 
 
-class DefaultMethodController(object):
-    """A default controller for handling requests.
-
-    This controller handles the OPTIONS request method and any of the
-    HTTP methods that are not explicitly implemented by the application.
-    """
-
-    def options(self, req, allowed_methods, *args, **kwargs):
-        """Handler of the OPTIONS request method.
-
-        Return a response that includes the 'Allow' header listing the methods
-        that are implemented. A 204 status code is used for this response.
-        """
-        raise webob.exc.HTTPNoContent(headers=[('Allow', allowed_methods)])
-
-    def reject(self, req, allowed_methods, *args, **kwargs):
-        """Return a 405 method not allowed error.
-
-        As a convenience, the 'Allow' header with the list of implemented
-        methods is included in the response as well.
-        """
-        raise webob.exc.HTTPMethodNotAllowed(
-            headers=[('Allow', allowed_methods)])
-
-
 class Router(object):
     """WSGI middleware that maps incoming requests to WSGI apps."""
 
@@ -577,17 +537,16 @@ class Router(object):
         """Create a router for the given routes.Mapper."""
 
         self.map = mapper
-        self._router = routes.middleware.RoutesMiddleware(self._dispatch,
-                                                          self.map)
+        self._router = middleware.RoutesMiddleware(self._dispatch, self.map)
 
-    @webob.dec.wsgify
+    @webob_dec.wsgify
     def __call__(self, req):
         """Route the incoming request to a controller based on self.map."""
 
         return self._router
 
     @staticmethod
-    @webob.dec.wsgify
+    @webob_dec.wsgify
     def _dispatch(req):
         """Private dispatch method.
 
@@ -598,7 +557,7 @@ class Router(object):
 
         match = req.environ['wsgiorg.routing_args'][1]
         if not match:
-            return webob.exc.HTTPNotFound()
+            return exc.HTTPNotFound()
         app = match['controller']
         return app
 
@@ -662,7 +621,7 @@ class Resource(object):
         self.deserializer = serializers.JSONRequestDeserializer()
         self.serializer = serializers.JSONResponseSerializer()
 
-    @webob.dec.wsgify(RequestClass=Request)
+    @webob_dec.wsgify(RequestClass=Request)
     def __call__(self, request):
         """WSGI method that controls (de)serialization and method dispatch."""
         action_args = self.get_action_args(request.environ)
@@ -683,14 +642,14 @@ class Resource(object):
             LOG.error(_LE('Exception handling resource: %s') % err)
             msg = _('The server could not comply with the request since '
                     'it is either malformed or otherwise incorrect.')
-            err = webob.exc.HTTPBadRequest(msg)
+            err = exc.HTTPBadRequest(msg)
             http_exc = translate_exception(err, request.best_match_language())
             # NOTE(luisg): We disguise HTTP exceptions, otherwise they will be
             # treated by wsgi as responses ready to be sent back and they
             # won't make it into the pipeline app that serializes errors
             raise exception.HTTPExceptionDisguise(http_exc)
-        except webob.exc.HTTPException as err:
-            if not isinstance(err, webob.exc.HTTPError):
+        except exc.HTTPException as err:
+            if not isinstance(err, exc.HTTPError):
                 # Some HTTPException are actually not errors, they are
                 # responses ready to be sent back to the users, so we don't
                 # create error log, but disguise and translate them to meet
@@ -698,7 +657,7 @@ class Resource(object):
                 http_exc = translate_exception(err,
                                                request.best_match_language())
                 raise exception.HTTPExceptionDisguise(http_exc)
-            if isinstance(err, webob.exc.HTTPServerError):
+            if isinstance(err, exc.HTTPServerError):
                 LOG.error(
                     _LE("Returning %(code)s to user: %(explanation)s"),
                     {'code': err.code, 'explanation': err.explanation})
@@ -757,22 +716,33 @@ class Resource(object):
         return args
 
 
+class Controller(object):
+    """Generic WSGI controller for resources."""
+
+    def __init__(self, options):
+        self.options = options
+        self.rpc_client = rpc_client.EngineClient()
+
+    def default(self, req, **args):
+        raise exc.HTTPNotFound()
+
+
 def log_exception(err, exc_info):
     args = {'exc_info': exc_info} if cfg.CONF.verbose or cfg.CONF.debug else {}
     LOG.error(_LE("Unexpected error occurred serving API: %s"), err, **args)
 
 
-def translate_exception(exc, locale):
+def translate_exception(ex, locale):
     """Translates all translatable elements of the given exception."""
-    if isinstance(exc, exception.SenlinException):
-        exc.message = oslo_i18n.translate(exc.message, locale)
+    if isinstance(ex, exception.SenlinException):
+        ex.message = oslo_i18n.translate(ex.message, locale)
     else:
-        exc.message = oslo_i18n.translate(six.text_type(exc), locale)
+        ex.message = oslo_i18n.translate(six.text_type(ex), locale)
 
-    if isinstance(exc, webob.exc.HTTPError):
-        exc.explanation = oslo_i18n.translate(exc.explanation, locale)
-        exc.detail = oslo_i18n.translate(getattr(exc, 'detail', ''), locale)
-    return exc
+    if isinstance(ex, exc.HTTPError):
+        ex.explanation = oslo_i18n.translate(ex.explanation, locale)
+        ex.detail = oslo_i18n.translate(getattr(ex, 'detail', ''), locale)
+    return ex
 
 
 @six.add_metaclass(abc.ABCMeta)
@@ -877,3 +847,51 @@ def paste_deploy_app(paste_config_file, app_name, conf):
         return deploy.loadapp("config:%s" % paste_config_file, name=app_name)
     finally:
         teardown_paste_factories()
+
+
+def _get_deployment_config_file():
+    """Retrieve item from deployment_config_file.
+
+    The retrieved item is formatted as an absolute pathname.
+    """
+    config_path = cfg.CONF.find_file(
+        cfg.CONF.paste_deploy['api_paste_config'])
+    if config_path is None:
+        return None
+
+    return os.path.abspath(config_path)
+
+
+def load_paste_app(app_name=None):
+    """Builds and returns a WSGI app from a paste config file.
+
+    We assume the last config file specified in the supplied ConfigOpts
+    object is the paste config file.
+
+    :param app_name: name of the application to load
+
+    :raises RuntimeError when config file cannot be located or application
+            cannot be loaded from config file
+    """
+    if app_name is None:
+        app_name = cfg.CONF.prog
+
+    conf_file = _get_deployment_config_file()
+    if conf_file is None:
+        raise RuntimeError(_("Unable to locate config file"))
+
+    try:
+        app = paste_deploy_app(conf_file, app_name, cfg.CONF)
+
+        # Log the options used when starting if we're in debug mode...
+        if cfg.CONF.debug:
+            cfg.CONF.log_opt_values(logging.getLogger(app_name),
+                                    std_logging.DEBUG)
+
+        return app
+    except (LookupError, ImportError) as e:
+        raise RuntimeError(_("Unable to load %(app_name)s from "
+                             "configuration file %(conf_file)s."
+                             "\nGot: %(e)r") % {'app_name': app_name,
+                                                'conf_file': conf_file,
+                                                'e': e})

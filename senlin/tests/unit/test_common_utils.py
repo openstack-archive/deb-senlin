@@ -10,7 +10,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from cryptography import fernet
+import logging
+
 import requests
 from requests import exceptions
 import six
@@ -63,50 +64,48 @@ class TestParameterParsing(base.SenlinTestCase):
                               utils.parse_int_param, name, value,
                               lower_limit=2, upper_limit=5)
 
-    def test_parse_sort_param(self):
+    def test_validate_sort_param(self):
+        whitelist = ['foo', 'bar', 'zoo']
         # None case
-        actual = utils.parse_sort_param(None)
-        self.assertEqual(2, len(actual))
-        self.assertIsNone(actual[0])
-        self.assertIsNone(actual[1])
+        actual = utils.validate_sort_param(None, whitelist)
+        self.assertIsNone(actual)
 
-        # single key
-        value = 'foo'
-        actual = utils.parse_sort_param(value)
-        self.assertEqual(2, len(actual))
-        self.assertEqual(['foo'], actual[0])
-        self.assertEqual(['asc'], actual[1])
+        # single good key
+        actual = utils.validate_sort_param('foo', whitelist)
+        self.assertIsNone(actual)
 
         # multiple keys
-        value = 'foo,bar,zoo'
-        actual = utils.parse_sort_param(value)
-        self.assertEqual(2, len(actual))
-        self.assertEqual(['foo', 'bar', 'zoo'], actual[0])
-        self.assertEqual(['asc', 'asc', 'asc'], actual[1])
+        actual = utils.validate_sort_param('foo,bar', whitelist)
+        self.assertIsNone(actual)
 
-        # partial dirs
+        # with dirs
         value = 'foo:asc,bar,zoo:desc'
-        actual = utils.parse_sort_param(value)
-        self.assertEqual(2, len(actual))
-        self.assertEqual(['foo', 'bar', 'zoo'], actual[0])
-        self.assertEqual(['asc', 'asc', 'desc'], actual[1])
+        actual = utils.validate_sort_param(value, whitelist)
+        self.assertIsNone(actual)
 
-        # all with dirs
-        value = 'foo:asc,bar:desc,zoo:desc'
-        actual = utils.parse_sort_param(value)
-        self.assertEqual(2, len(actual))
-        self.assertEqual(['foo', 'bar', 'zoo'], actual[0])
-        self.assertEqual(['asc', 'desc', 'desc'], actual[1])
+    def test_validate_sort_param_key_missing(self):
+        whitelist = ['foo', 'bar', 'zoo']
+        ex = self.assertRaises(exception.InvalidParameter,
+                               utils.validate_sort_param,
+                               ':asc', whitelist)
+        self.assertEqual("Invalid value '' specified for 'sort key'",
+                         six.text_type(ex))
 
-        # missing key
-        value = ':asc'
-        self.assertRaises(exception.InvalidParameter,
-                          utils.parse_sort_param, value)
+    def test_validate_sort_param_invalid_key(self):
+        whitelist = ['foo', 'bar', 'zoo']
+        ex = self.assertRaises(exception.InvalidParameter,
+                               utils.validate_sort_param,
+                               'cool', whitelist)
+        self.assertEqual("Invalid value 'cool' specified for 'sort key'",
+                         six.text_type(ex))
 
-        # bad sorting dir
-        value = 'foo:inc'
-        self.assertRaises(exception.InvalidParameter,
-                          utils.parse_sort_param, value)
+    def test_validate_sort_param_invalid_dir(self):
+        whitelist = ['foo', 'bar', 'zoo']
+        ex = self.assertRaises(exception.InvalidParameter,
+                               utils.validate_sort_param,
+                               'bar:inc', whitelist)
+        self.assertEqual("Invalid value 'inc' specified for 'sort dir'",
+                         six.text_type(ex))
 
 
 class Response(object):
@@ -192,38 +191,6 @@ class UrlFetchTest(base.SenlinTestCase):
         self.assertIn("Data exceeds", six.text_type(exception))
 
 
-class TestEncrypt(base.SenlinTestCase):
-    def test_encrypt(self):
-        msg = 'test-string'
-        msg_encrypted, key = utils.encrypt(msg)
-
-        self.assertIsInstance(msg_encrypted, six.string_types)
-        self.assertIsInstance(key, six.string_types)
-
-    def test_decrypt(self):
-        msg = 'test-string'
-        msg_encrypted, key = utils.encrypt(msg)
-
-        msg_decrypted = utils.decrypt(msg_encrypted, key)
-        self.assertEqual(msg, msg_decrypted)
-
-    def test_decrypt_invalid_key_msg(self):
-        msg = 'test-string'
-        msg_encrypted, key = utils.encrypt(msg)
-
-        invalid_key = 'fake-key'
-        self.assertRaises(fernet.InvalidToken, utils.decrypt,
-                          msg_encrypted, invalid_key)
-
-        invalid_msg = 'fake-msg'
-        self.assertRaises(ValueError, utils.decrypt,
-                          invalid_msg, key)
-
-        invalid_msg = fernet.Fernet.generate_key()
-        self.assertRaises(fernet.InvalidToken, utils.decrypt,
-                          invalid_msg, key)
-
-
 class TestRandomName(base.SenlinTestCase):
 
     def test_default(self):
@@ -254,3 +221,34 @@ class TestRandomName(base.SenlinTestCase):
 
         result = utils.random_name(-9)
         self.assertEqual('', result)
+
+
+class TestParseLevelValues(base.SenlinTestCase):
+
+    def test_none(self):
+        res = utils.parse_level_values(None)
+        self.assertIsNone(res)
+
+    def test_empty_list(self):
+        res = utils.parse_level_values([])
+        self.assertIsNone(res)
+
+    def test_single_value(self):
+        res = utils.parse_level_values('ERROR')
+        self.assertEqual([logging.ERROR], res)
+
+    def test_multi_values(self):
+        res = utils.parse_level_values(['WARNING', 'ERROR'])
+        self.assertEqual([logging.WARNING, logging.ERROR], res)
+
+    def test_with_invalid_values(self):
+        res = utils.parse_level_values(['warn', 'ERROR'])
+        self.assertEqual([logging.ERROR], res)
+
+    def test_with_integers(self):
+        res = utils.parse_level_values(40)
+        self.assertEqual([40], res)
+
+    def test_with_only_invalid_values(self):
+        res = utils.parse_level_values(['warn'])
+        self.assertIsNone(res)

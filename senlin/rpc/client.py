@@ -51,24 +51,6 @@ class EngineClient(object):
             client = self._client
         return client.cast(ctxt, method, **kwargs)
 
-    def local_error_name(self, error):
-        '''Returns the name of the error with any _Remote postfix removed.
-
-        :param error: Remote raised error to derive the name from.
-        '''
-
-        error_name = error.__class__.__name__
-        return error_name.split('_Remote')[0]
-
-    def ignore_error_named(self, error, name):
-        '''Raises the error unless its local name matches the supplied name
-
-        :param error: Remote raised error to derive the local name from.
-        :param name: Name to compare local name to.
-        '''
-        if self.local_error_name(error) != name:
-            raise error
-
     def profile_type_list(self, ctxt):
         return self.call(ctxt, self.make_msg('profile_type_list'))
 
@@ -138,27 +120,25 @@ class EngineClient(object):
                                         identity=identity))
 
     def cluster_list(self, ctxt, limit=None, marker=None, sort=None,
-                     filters=None, project_safe=True, show_nested=False):
+                     filters=None, project_safe=True):
         return self.call(ctxt,
                          self.make_msg('cluster_list', filters=filters,
                                        limit=limit, marker=marker, sort=sort,
-                                       project_safe=project_safe,
-                                       show_nested=show_nested))
+                                       project_safe=project_safe))
 
     def cluster_get(self, ctxt, identity):
         return self.call(ctxt,
                          self.make_msg('cluster_get', identity=identity))
 
     def cluster_create(self, ctxt, name, desired_capacity, profile_id,
-                       min_size=None, max_size=None, parent=None,
-                       metadata=None, timeout=None):
+                       min_size=None, max_size=None, metadata=None,
+                       timeout=None):
         return self.call(ctxt, self.make_msg('cluster_create',
                                              name=name,
                                              desired_capacity=desired_capacity,
                                              profile_id=profile_id,
                                              min_size=min_size,
                                              max_size=max_size,
-                                             parent=parent,
                                              metadata=metadata,
                                              timeout=timeout))
 
@@ -172,13 +152,15 @@ class EngineClient(object):
                                              identity=identity,
                                              nodes=nodes))
 
-    def cluster_check(self, ctxt, identity):
+    def cluster_check(self, ctxt, identity, params=None):
         return self.call(ctxt, self.make_msg('cluster_check',
-                                             identity=identity))
+                                             identity=identity,
+                                             params=params))
 
-    def cluster_recover(self, ctxt, identity):
+    def cluster_recover(self, ctxt, identity, params=None):
         return self.call(ctxt, self.make_msg('cluster_recover',
-                                             identity=identity))
+                                             identity=identity,
+                                             params=params))
 
     def cluster_resize(self, ctxt, identity, adj_type=None, number=None,
                        min_size=None, max_size=None, min_step=None,
@@ -203,11 +185,11 @@ class EngineClient(object):
                                              count=count))
 
     def cluster_update(self, ctxt, identity, name=None, profile_id=None,
-                       parent=None, metadata=None, timeout=None):
+                       metadata=None, timeout=None):
         return self.call(ctxt, self.make_msg('cluster_update',
                                              identity=identity, name=name,
                                              profile_id=profile_id,
-                                             parent=parent, metadata=metadata,
+                                             metadata=metadata,
                                              timeout=timeout))
 
     def cluster_delete(self, ctxt, identity, cast=True):
@@ -242,19 +224,20 @@ class EngineClient(object):
                                        name=name, profile_id=profile_id,
                                        role=role, metadata=metadata))
 
-    def node_delete(self, ctxt, identity, force=False, cast=True):
+    def node_delete(self, ctxt, identity, cast=True):
         rpc_method = self.cast if cast else self.call
         return rpc_method(ctxt,
-                          self.make_msg('node_delete', identity=identity,
-                                        force=force))
+                          self.make_msg('node_delete', identity=identity))
 
-    def node_check(self, ctxt, identity):
+    def node_check(self, ctxt, identity, params=None):
         return self.call(ctxt, self.make_msg('node_check',
-                                             identity=identity))
+                                             identity=identity,
+                                             params=params))
 
-    def node_recover(self, ctxt, identity):
+    def node_recover(self, ctxt, identity, params=None):
         return self.call(ctxt, self.make_msg('node_recover',
-                                             identity=identity))
+                                             identity=identity,
+                                             params=params))
 
     def action_list(self, ctxt, filters=None, limit=None, marker=None,
                     sort=None, project_safe=True):
@@ -290,10 +273,10 @@ class EngineClient(object):
                                              policy=policy_id,
                                              enabled=enabled))
 
-    def action_create(self, ctxt, name, target, action, params):
+    def action_create(self, ctxt, name, cluster, action, params):
         return self.call(ctxt,
                          self.make_msg('action_create',
-                                       name=name, target=target,
+                                       name=name, cluster=cluster,
                                        action=action, params=params))
 
     def action_get(self, ctxt, identity):

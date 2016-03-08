@@ -17,16 +17,15 @@ Utilities module.
 import random
 import string
 
-from cryptography.fernet import Fernet
 import requests
 from requests import exceptions
 from six.moves import urllib
 
 from oslo_config import cfg
 from oslo_log import log as logging
-from oslo_utils import encodeutils
 from oslo_utils import strutils
 
+from senlin.common import consts
 from senlin.common import exception
 from senlin.common.i18n import _
 from senlin.common.i18n import _LI
@@ -69,35 +68,48 @@ def parse_bool_param(name, value):
     return strutils.bool_from_string(value, strict=True)
 
 
-def parse_sort_param(value):
-    """Parse a string value into list of keys and list of sorting dirs.
+def validate_sort_param(value, whitelist):
+    """Validate a string value and see if it is a valid sort param.
 
     :param value: A string as the input which should be one of the following
                   formats:
                   - 'key1,key2,key3'
                   - 'key1:asc,key2,key3:desc'
                   - 'key1:asc,key2:asc,key3:desc'
-    :return: a list of keys and a list of sorting dirs.
-    :rtype: tuple
+    :param whitelist: A list of permitted sorting keys.
+    :return: None if validation succeeds or an exception of `InvalidParameter`
+             otherwise.
     """
 
     if value is None:
-        return None, None
+        return None
 
-    sort_keys = []
-    sort_dirs = []
     for s in value.split(','):
         s_key, _sep, s_dir = s.partition(':')
-        if not s_key:
-            raise exception.InvalidParameter(name='sort key', value='<None>')
-        if not s_dir:
-            s_dir = 'asc'
-        elif s_dir not in ('asc', 'desc'):
+        if not s_key or s_key not in whitelist:
+            raise exception.InvalidParameter(name='sort key', value=s_key)
+        if s_dir and s_dir not in ('asc', 'desc'):
             raise exception.InvalidParameter(name='sort dir', value=s_dir)
-        sort_keys.append(s_key)
-        sort_dirs.append(s_dir)
 
-    return sort_keys, sort_dirs
+
+def parse_level_values(values):
+    """Parse a given list of level values to numbers.
+
+    :param values: A list of event level values.
+    :return: A list of translated values.
+    """
+    if not isinstance(values, list):
+        values = [values]
+    result = []
+    for v in values:
+        if v in consts.EVENT_LEVELS:
+            result.append(consts.EVENT_LEVELS[v])
+        elif isinstance(v, int):
+            result.append(v)
+
+    if result == []:
+        return None
+    return result
 
 
 def url_fetch(url, allowed_schemes=('http', 'https')):
@@ -143,31 +155,6 @@ def url_fetch(url, allowed_schemes=('http', 'https')):
 
     except exceptions.RequestException as ex:
         raise URLFetchError(_('Failed to retrieve data: %s') % ex)
-
-
-def encrypt(msg):
-    '''Encrypt message with random key.
-
-    :param msg: message to be encrypted
-    :returns: encrypted msg and key to decrypt
-    '''
-    password = Fernet.generate_key()
-    f = Fernet(password)
-    key = f.encrypt(encodeutils.safe_encode(msg))
-    return encodeutils.safe_decode(password), encodeutils.safe_decode(key)
-
-
-def decrypt(msg, key):
-    '''Decrypt message using provided key.
-
-    :param msg: encrypted message
-    :param key: key used to decrypt
-    :returns: decrypted message string
-    '''
-    f = Fernet(encodeutils.safe_encode(msg))
-    msg = f.decrypt(encodeutils.safe_encode(key))
-
-    return encodeutils.safe_decode(msg)
 
 
 def random_name(length=8):

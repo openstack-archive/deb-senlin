@@ -10,16 +10,12 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-'''
+"""
 Unit Tests for senlin.rpc.client
-'''
-
-
+"""
 import copy
 import mock
-from oslo_messaging._drivers import common as rpc_common
 
-from senlin.common import exception
 from senlin.common import messaging
 from senlin.rpc import client as rpc_client
 from senlin.tests.unit.common import base
@@ -88,33 +84,6 @@ class EngineRpcAPITestCase(base.SenlinTestCase):
         new_client.cast.assert_called_once_with(self.context, 'fake_method',
                                                 key='value')
         self.assertEqual(res, new_client.cast.return_value)
-
-    def _to_remote_error(self, error):
-        '''Converts the given exception to one with the _Remote suffix.'''
-        exc_info = (type(error), error, None)
-        serialized = rpc_common.serialize_remote_exception(exc_info)
-        remote_error = rpc_common.deserialize_remote_exception(
-            serialized, ["senlin.common.exception"])
-        return remote_error
-
-    def test_local_error_name(self):
-        ex = exception.NodeNotFound(node='A')
-        self.assertEqual('NodeNotFound', self.rpcapi.local_error_name(ex))
-
-        exr = self._to_remote_error(ex)
-        self.assertEqual('NodeNotFound_Remote', exr.__class__.__name__)
-        self.assertEqual('NodeNotFound', self.rpcapi.local_error_name(exr))
-
-    def test_ignore_error_named(self):
-        ex = exception.NodeNotFound(node='A')
-        exr = self._to_remote_error(ex)
-
-        self.rpcapi.ignore_error_named(ex, 'NodeNotFound')
-        self.rpcapi.ignore_error_named(exr, 'NodeNotFound')
-        self.assertRaises(exception.NodeNotFound,
-                          self.rpcapi.ignore_error_named, ex, 'NotSupported')
-        self.assertRaises(exception.NodeNotFound,
-                          self.rpcapi.ignore_error_named, exr, 'NotSupported')
 
     def _test_engine_api(self, method, rpc_method, **kwargs):
         ctxt = utils.dummy_context()
@@ -240,7 +209,6 @@ class EngineRpcAPITestCase(base.SenlinTestCase):
             'sort': mock.ANY,
             'filters': mock.ANY,
             'project_safe': mock.ANY,
-            'show_nested': mock.ANY,
         }
         self._test_engine_api('cluster_list', 'call', **default_args)
 
@@ -251,7 +219,6 @@ class EngineRpcAPITestCase(base.SenlinTestCase):
             'profile_id': 'aaaa-bbbb-cccc',
             'min_size': 0,
             'max_size': 0,
-            'parent': None,
             'metadata': None,
             'timeout': None
         }
@@ -286,7 +253,6 @@ class EngineRpcAPITestCase(base.SenlinTestCase):
             'identity': 'a-cluster',
             'name': 'new-name',
             'profile_id': 'new_profile',
-            'parent': 'another-cluster',
             'metadata': {'key': 'value'},
             'timeout': 120
         }
@@ -299,10 +265,17 @@ class EngineRpcAPITestCase(base.SenlinTestCase):
         self._test_engine_api('cluster_delete', 'call', identity='a-cluster')
 
     def test_cluster_check(self):
-        self._test_engine_api('cluster_check', 'call', identity='a-cluster')
+        self._test_engine_api('cluster_check', 'call', identity='a-cluster',
+                              params=None)
 
     def test_cluster_recover(self):
-        self._test_engine_api('cluster_recover', 'call', identity='a-cluster')
+        self._test_engine_api('cluster_recover', 'call', identity='a-cluster',
+                              params=None)
+
+    def test_cluster_recover_with_params(self):
+        params = {'operation': 'REBUILD'}
+        self._test_engine_api('cluster_recover', 'call', identity='a-cluster',
+                              params=params)
 
     def test_node_list(self):
         default_args = {
@@ -341,18 +314,23 @@ class EngineRpcAPITestCase(base.SenlinTestCase):
         self._test_engine_api('node_update', 'call', **kwargs)
 
     def test_node_delete_cast(self):
-        self._test_engine_api('node_delete', 'cast', identity='a-node',
-                              force=False)
+        self._test_engine_api('node_delete', 'cast', identity='a-node')
 
     def test_node_delete_call(self):
-        self._test_engine_api('node_delete', 'call', identity='a-node',
-                              force=False)
+        self._test_engine_api('node_delete', 'call', identity='a-node')
 
     def test_node_check(self):
-        self._test_engine_api('node_check', 'call', identity='a-node')
+        self._test_engine_api('node_check', 'call', identity='a-node',
+                              params=None)
 
     def test_node_recover(self):
-        self._test_engine_api('node_recover', 'call', identity='a-node')
+        self._test_engine_api('node_recover', 'call', identity='a-node',
+                              params=None)
+
+    def test_node_recover_with_params(self):
+        params = {'operation': 'REBUILD'}
+        self._test_engine_api('node_recover', 'call', identity='a-cluster',
+                              params=params)
 
     def test_action_list(self):
         default_args = {
@@ -445,7 +423,7 @@ class EngineRpcAPITestCase(base.SenlinTestCase):
     def test_action_create(self):
         kwargs = {
             'name': 'myaction',
-            'target': 'aaaa-bbbb-cccc',
+            'cluster': 'aaaa-bbbb-cccc',
             'action': 'this is a script',
             'params': None,
         }

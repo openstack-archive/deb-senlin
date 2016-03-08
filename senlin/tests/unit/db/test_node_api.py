@@ -10,10 +10,11 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import six
-
+import mock
+from oslo_db.sqlalchemy import utils as sa_utils
 from oslo_serialization import jsonutils
 from oslo_utils import timeutils as tu
+import six
 
 from senlin.common import consts
 from senlin.common import exception
@@ -77,6 +78,13 @@ class DBAPINodeTest(base.SenlinTestCase):
         node = db_api.node_get(ctx_new, res.id, project_safe=False)
         self.assertIsNotNone(node)
 
+    def test_node_get_with_admin_context(self):
+        res = shared.create_node(self.ctx, self.cluster, self.profile)
+        admin_ctx = utils.dummy_context(project='a_different_project',
+                                        is_admin=True)
+        node = db_api.node_get(admin_ctx, res.id, project_safe=True)
+        self.assertIsNotNone(node)
+
     def test_node_get_by_name(self):
         shared.create_node(self.ctx, self.cluster, self.profile)
         node = db_api.node_get_by_name(self.ctx, 'test_node_name')
@@ -133,6 +141,17 @@ class DBAPINodeTest(base.SenlinTestCase):
                                           project_safe=False)
         self.assertIsNotNone(res)
 
+    def test_node_get_by_short_id_admin_context(self):
+        node_id = 'same-part-unique-part'
+        shared.create_node(self.ctx, None, self.profile,
+                           id=node_id, name='node-1')
+
+        admin_ctx = utils.dummy_context(project='a_different_project',
+                                        is_admin=True)
+        res = db_api.node_get_by_short_id(admin_ctx, node_id[:11],
+                                          project_safe=True)
+        self.assertIsNotNone(res)
+
     def test_node_get_all(self):
         values = [{'name': 'node1'}, {'name': 'node2'}, {'name': 'node3'}]
         [shared.create_node(self.ctx, None, self.profile, **v) for v in values]
@@ -182,12 +201,12 @@ class DBAPINodeTest(base.SenlinTestCase):
         nodes = db_api.node_get_all(self.ctx, limit=1, marker='node1')
         self.assertEqual(1, len(nodes))
 
-    def test_node_get_all_used_sort_keys(self):
+    @mock.patch.object(sa_utils, 'paginate_query')
+    def test_node_get_all_used_sort_keys(self, mock_paginate):
         node_ids = ['node1', 'node2', 'node3']
         for v in node_ids:
             shared.create_node(self.ctx, self.cluster, self.profile, id=v)
 
-        mock_paginate = self.patchobject(db_api.utils, 'paginate_query')
         sort = ','.join(consts.NODE_SORT_KEYS)
 
         db_api.node_get_all(self.ctx, sort=sort)
@@ -274,6 +293,15 @@ class DBAPINodeTest(base.SenlinTestCase):
         results = db_api.node_get_all(self.ctx, project_safe=True)
         self.assertEqual(0, len(results))
 
+    def test_node_get_all_with_admin_context(self):
+        shared.create_node(self.ctx, None, self.profile, name='node1')
+        shared.create_node(self.ctx, None, self.profile, name='node2')
+
+        admin_ctx = utils.dummy_context(project='a_different_project',
+                                        is_admin=True)
+        results = db_api.node_get_all(admin_ctx, project_safe=True)
+        self.assertEqual(2, len(results))
+
     def test_node_get_by_cluster(self):
         cluster1 = shared.create_cluster(self.ctx, self.profile)
 
@@ -287,7 +315,7 @@ class DBAPINodeTest(base.SenlinTestCase):
         self.assertEqual(set([node1.id, node2.id]),
                          set([nodes[0].id, nodes[1].id]))
 
-        # retreive orphan nodes
+        # retrieve orphan nodes
         nodes = db_api.node_get_all_by_cluster(self.ctx, '')
         self.assertEqual(1, len(nodes))
         self.assertEqual(node0.id, nodes[0].id)
@@ -318,6 +346,53 @@ class DBAPINodeTest(base.SenlinTestCase):
         nodes = db_api.node_get_all_by_cluster(ctx_new, self.cluster.id,
                                                project_safe=False)
         self.assertEqual(2, len(nodes))
+
+    def test_node_get_by_cluster_admin_context(self):
+        shared.create_cluster(self.ctx, self.profile)
+
+        node1 = shared.create_node(self.ctx, self.cluster, self.profile)
+        node2 = shared.create_node(self.ctx, self.cluster, self.profile)
+
+        admin_ctx = utils.dummy_context(project='a_different_project',
+                                        is_admin=True)
+        nodes = db_api.node_get_all_by_cluster(admin_ctx, self.cluster.id)
+        self.assertEqual(2, len(nodes))
+        self.assertEqual(set([node1.id, node2.id]),
+                         set([nodes[0].id, nodes[1].id]))
+
+    def test_node_count_by_cluster(self):
+        shared.create_cluster(self.ctx, self.profile)
+
+        shared.create_node(self.ctx, self.cluster, self.profile)
+        shared.create_node(self.ctx, self.cluster, self.profile)
+
+        res = db_api.node_count_by_cluster(self.ctx, self.cluster.id)
+        self.assertEqual(2, res)
+
+    def test_node_count_by_cluster_diff_project(self):
+        ctx_new = utils.dummy_context(project='a_different_project')
+        shared.create_cluster(self.ctx, self.profile)
+
+        shared.create_node(self.ctx, self.cluster, self.profile)
+        shared.create_node(self.ctx, self.cluster, self.profile)
+
+        res = db_api.node_count_by_cluster(ctx_new, self.cluster.id)
+        self.assertEqual(0, res)
+
+        res = db_api.node_count_by_cluster(ctx_new, self.cluster.id,
+                                           project_safe=False)
+        self.assertEqual(2, res)
+
+    def test_node_count_by_cluster_admin_context(self):
+        shared.create_cluster(self.ctx, self.profile)
+        shared.create_node(self.ctx, self.cluster, self.profile)
+        shared.create_node(self.ctx, self.cluster, self.profile)
+
+        admin_ctx = utils.dummy_context(project='a_different_project',
+                                        is_admin=True)
+        res = db_api.node_count_by_cluster(admin_ctx, self.cluster.id,
+                                           project_safe=True)
+        self.assertEqual(2, res)
 
     def test_node_update(self):
         node = shared.create_node(self.ctx, self.cluster, self.profile)

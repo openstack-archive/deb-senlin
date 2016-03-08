@@ -69,9 +69,6 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
         cfgopts = DummyConfig()
         self.controller = receivers.ReceiverController(options=cfgopts)
 
-    def test_default(self, mock_enforce):
-        self.assertRaises(exc.HTTPNotFound, self.controller.default, None)
-
     def test_receiver_index_normal(self, mock_enforce):
         self._mock_enforce_setup(mock_enforce, 'index', True)
         req = self._get('/receivers')
@@ -118,9 +115,6 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
             'limit': 20,
             'marker': 'fake marker',
             'sort': 'fake sorting string',
-            'project_safe': True,
-            'filters': None,
-            'balrog': 'you shall not pass!'
         }
         req = self._get('/receivers', params=params)
 
@@ -136,10 +130,21 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
         self.assertIn('limit', engine_args)
         self.assertIn('marker', engine_args)
         self.assertIn('sort', engine_args)
-        self.assertIn('filters', engine_args)
-        self.assertIn('project_safe', engine_args)
-        self.assertNotIn('tenant_safe', engine_args)
-        self.assertNotIn('balrog', engine_args)
+
+    def test_receiver_index_whitelists_invalid_params(self, mock_enforce):
+        self._mock_enforce_setup(mock_enforce, 'index', True)
+        params = {
+            'balrog': 'you shall not pass!'
+        }
+        req = self._get('/receivers', params=params)
+        mock_call = self.patchobject(rpc_client.EngineClient, 'call')
+
+        ex = self.assertRaises(exc.HTTPBadRequest,
+                               self.controller.index, req)
+
+        self.assertEqual("Invalid parameter balrog",
+                         str(ex))
+        self.assertFalse(mock_call.called)
 
     def test_receiver_index_whitelist_filter_params(self, mock_enforce):
         self._mock_enforce_setup(mock_enforce, 'index', True)
@@ -148,7 +153,6 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
             'type': 'webhook',
             'cluster_id': 'test-id',
             'action': 'fake-action',
-            'balrog': 'you shall not pass!'
         }
         req = self._get('/receivers', params=params)
 
@@ -167,7 +171,22 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
         self.assertIn('type', filters)
         self.assertIn('cluster_id', filters)
         self.assertIn('action', filters)
-        self.assertNotIn('balrog', filters)
+
+    def test_receiver_index_whitelist_filter_invalid_params(self,
+                                                            mock_enforce):
+        self._mock_enforce_setup(mock_enforce, 'index', True)
+        params = {
+            'balrog': 'you shall not pass!'
+        }
+        req = self._get('/receivers', params=params)
+
+        mock_call = self.patchobject(rpc_client.EngineClient, 'call')
+        ex = self.assertRaises(exc.HTTPBadRequest,
+                               self.controller.index, req)
+
+        self.assertEqual("Invalid parameter balrog",
+                         str(ex))
+        self.assertFalse(mock_call.called)
 
     def test_receiver_index_limit_non_int(self, mock_enforce):
         mock_call = self.patchobject(rpc_client.EngineClient, 'receiver_list',
@@ -289,8 +308,8 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
         }
         req = self._post('/receivers', jsonutils.dumps(body))
 
-        msg = _('receiver obj_type (%s) is unsupported') % r_type
-        error = senlin_exc.SenlinBadRequest(msg=msg)
+        msg = _('receiver obj_type (%s) is unsupported.') % r_type
+        error = senlin_exc.BadRequest(msg=msg)
         mock_call = self.patchobject(rpc_client.EngineClient, 'call',
                                      side_effect=error)
 
@@ -306,8 +325,7 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
         mock_call.assert_called_once_with(req.context,
                                           ('receiver_create', expected_args))
         self.assertEqual(400, resp.json['code'])
-        self.assertEqual('SenlinBadRequest', resp.json['error']['type'])
-        self.assertIsNone(resp.json['error']['traceback'])
+        self.assertEqual('BadRequest', resp.json['error']['type'])
 
     def test_receiver_create_with_cluster_id_notfound(self, mock_enforce):
         self._mock_enforce_setup(mock_enforce, 'create', True)
@@ -339,7 +357,6 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
                                           ('receiver_create', expected_args))
         self.assertEqual(404, resp.json['code'])
         self.assertEqual('ClusterNotFound', resp.json['error']['type'])
-        self.assertIsNone(resp.json['error']['traceback'])
 
     def test_receiver_create_illegal_action(self, mock_enforce):
         self._mock_enforce_setup(mock_enforce, 'create', True)
@@ -355,7 +372,7 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
         req = self._post('/receivers', jsonutils.dumps(body))
 
         msg = _('Illegal action (%s) specified.') % action
-        error = senlin_exc.SenlinBadRequest(msg=msg)
+        error = senlin_exc.BadRequest(msg=msg)
         mock_call = self.patchobject(rpc_client.EngineClient, 'call',
                                      side_effect=error)
 
@@ -371,8 +388,7 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
         mock_call.assert_called_once_with(req.context,
                                           ('receiver_create', expected))
         self.assertEqual(400, resp.json['code'])
-        self.assertEqual('SenlinBadRequest', resp.json['error']['type'])
-        self.assertIsNone(resp.json['error']['traceback'])
+        self.assertEqual('BadRequest', resp.json['error']['type'])
 
     def test_receiver_create_unapplicable_action(self, mock_enforce):
         self._mock_enforce_setup(mock_enforce, 'create', True)
@@ -388,7 +404,7 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
         req = self._post('/receivers', jsonutils.dumps(body))
 
         msg = 'Action BAD is not applicable clusters.'
-        error = senlin_exc.SenlinBadRequest(msg=msg)
+        error = senlin_exc.BadRequest(msg=msg)
         mock_call = self.patchobject(rpc_client.EngineClient, 'call',
                                      side_effect=error)
 
@@ -404,8 +420,7 @@ class ReceiverControllerTest(shared.ControllerTest, base.SenlinTestCase):
         mock_call.assert_called_once_with(req.context,
                                           ('receiver_create', expected))
         self.assertEqual(400, resp.json['code'])
-        self.assertEqual('SenlinBadRequest', resp.json['error']['type'])
-        self.assertIsNone(resp.json['error']['traceback'])
+        self.assertEqual('BadRequest', resp.json['error']['type'])
 
     def test_receiver_get_normal(self, mock_enforce):
         self._mock_enforce_setup(mock_enforce, 'get', True)

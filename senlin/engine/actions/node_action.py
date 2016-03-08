@@ -33,7 +33,7 @@ class NodeAction(base.Action):
         'NODE_CHECK', 'NODE_RECOVER'
     )
 
-    def __init__(self, target, action, context=None, **kwargs):
+    def __init__(self, target, action, context, **kwargs):
         """Constructor for a node action object.
 
         :param target: ID of the target node object on which the action is to
@@ -63,7 +63,7 @@ class NodeAction(base.Action):
             result = scaleutils.check_size_params(
                 cluster, cluster.desired_capacity + 1, None, None, True)
 
-            if result != '':
+            if result:
                 return self.RES_ERROR, result
 
         res = self.node.do_create(self.context)
@@ -101,7 +101,7 @@ class NodeAction(base.Action):
             result = scaleutils.check_size_params(cluster,
                                                   cluster.desired_capacity - 1,
                                                   None, None, True)
-            if result != '':
+            if result:
                 return self.RES_ERROR, result
 
         res = self.node.do_delete(self.context)
@@ -138,7 +138,7 @@ class NodeAction(base.Action):
         desired_capacity = cluster.desired_capacity + 1
         result = scaleutils.check_size_params(cluster, desired_capacity,
                                               None, None, True)
-        if result != '':
+        if result:
             return self.RES_ERROR, result
 
         result = self.node.do_join(self.context, cluster_id)
@@ -163,7 +163,7 @@ class NodeAction(base.Action):
         desired_capacity = cluster.desired_capacity - 1
         result = scaleutils.check_size_params(cluster, desired_capacity,
                                               None, None, True)
-        if result != '':
+        if result:
             return self.RES_ERROR, result
 
         res = self.node.do_leave(self.context)
@@ -215,7 +215,7 @@ class NodeAction(base.Action):
             if self.cause == base.CAUSE_RPC:
                 res = senlin_lock.cluster_lock_acquire(
                     self.context,
-                    self.node.cluster_id, self.id,
+                    self.node.cluster_id, self.id, self.owner,
                     senlin_lock.NODE_SCOPE, False)
                 if not res:
                     return self.RES_RETRY, _('Failed in locking cluster')
@@ -233,7 +233,7 @@ class NodeAction(base.Action):
         reason = ''
         try:
             res = senlin_lock.node_lock_acquire(self.context, self.node.id,
-                                                self.id, False)
+                                                self.id, self.owner, False)
             if not res:
                 res = self.RES_ERROR
                 reason = _('Failed in locking node')

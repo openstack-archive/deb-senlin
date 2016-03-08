@@ -307,57 +307,69 @@ class CheckSizeParamsTest(base.SenlinTestCase):
                    'max_size (20).')),
         ('x_25_x20_x', dict(
             desired=None, min_size=25, max_size=None, strict=True,
-            result='The specified min_size is greater than the current '
-                   'max_size of the cluster.')),
+            result='The specified min_size (25) is greater than the current '
+                   'max_size (20) of the cluster.')),
         ('x_20_x_x', dict(
             desired=None, min_size=20, max_size=None, strict=True,
-            result='The specified min_size is greater than the current '
-                   'desired_capacity of the cluster.')),
+            result='The specified min_size (20) is greater than the current '
+                   'desired_capacity (15) of the cluster.')),
         ('x_x_5_x', dict(
             desired=None, min_size=None, max_size=5, strict=True,
-            result='The specified max_size is less than the current '
-                   'min_size of the cluster.')),
+            result='The specified max_size (5) is less than the current '
+                   'min_size (10) of the cluster.')),
         ('x_x_14_x', dict(
-            desired=None, min_size=None, max_size=5, strict=True,
-            result='The specified max_size is less than the current '
-                   'min_size of the cluster.')),
+            desired=None, min_size=None, max_size=14, strict=True,
+            result='The specified max_size (14) is less than the current '
+                   'desired_capacity (15) of the cluster.')),
         # The following are okay cases
+        ('5_x10_x_x', dict(
+            desired=5, min_size=None, max_size=None, strict=False,
+            result=None)),
+        ('30_x_x20_x', dict(
+            desired=30, min_size=None, max_size=None, strict=False,
+            result=None)),
+        ('x_20_x_x', dict(
+            desired=None, min_size=20, max_size=None, strict=False,
+            result=None)),
+        ('x_x_14_x', dict(
+            desired=None, min_size=None, max_size=14, strict=False,
+            result=None)),
         ('x_x_x_x', dict(
             desired=None, min_size=None, max_size=None, strict=True,
-            result='')),
+            result=None)),
         ('18_x_x_x', dict(
             desired=18, min_size=None, max_size=None, strict=True,
-            result='')),
+            result=None)),
         ('30_x_40_x', dict(
             desired=30, min_size=None, max_size=40, strict=True,
-            result='')),
+            result=None)),
         ('x_x_40_x', dict(
             desired=None, min_size=None, max_size=40, strict=True,
-            result='')),
+            result=None)),
         ('x_5_x_x', dict(
             desired=None, min_size=5, max_size=None, strict=True,
-            result='')),
+            result=None)),
         ('x_15_x_x', dict(
             desired=None, min_size=15, max_size=None, strict=True,
-            result='')),
+            result=None)),
         ('5_5_x_x', dict(
             desired=5, min_size=5, max_size=None, strict=True,
-            result='')),
+            result=None)),
         ('20_x_x_x', dict(
             desired=20, min_size=None, max_size=None, strict=True,
-            result='')),
+            result=None)),
         ('30_x_30_x', dict(
             desired=30, min_size=None, max_size=30, strict=True,
-            result='')),
+            result=None)),
         ('30_x_-1_x', dict(
             desired=30, min_size=None, max_size=-1, strict=True,
-            result='')),
+            result=None)),
         ('40_30_-1_x', dict(
             desired=40, min_size=30, max_size=-1, strict=True,
-            result='')),
+            result=None)),
         ('x_x_-1_x', dict(
             desired=None, min_size=None, max_size=-1, strict=True,
-            result='')),
+            result=None)),
     ]
 
     def test_check_size_params(self):
@@ -369,3 +381,15 @@ class CheckSizeParamsTest(base.SenlinTestCase):
         actual = su.check_size_params(cluster, self.desired, self.min_size,
                                       self.max_size, self.strict)
         self.assertEqual(self.result, actual)
+
+    def test_check_size_params_default_strict(self):
+        cluster = mock.Mock()
+        cluster.min_size = 10
+        cluster.max_size = 20
+        cluster.desired_capacity = 15
+        desired = 5
+        min_size = None
+        max_size = None
+
+        actual = su.check_size_params(cluster, desired, min_size, max_size)
+        self.assertIsNone(actual)

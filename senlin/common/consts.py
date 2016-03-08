@@ -10,6 +10,9 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import logging
+
+
 RPC_ATTRS = (
     ENGINE_TOPIC,
     ENGINE_DISPATCHER_TOPIC,
@@ -23,13 +26,11 @@ RPC_ATTRS = (
 )
 
 RPC_PARAMS = (
-    PARAM_SHOW_NESTED, PARAM_LIMIT, PARAM_MARKER,
-    PARAM_GLOBAL_PROJECT, PARAM_SHOW_DETAILS,
-    PARAM_SORT_DIR, PARAM_SORT_KEYS,
+    PARAM_LIMIT, PARAM_MARKER, PARAM_GLOBAL_PROJECT,
+    PARAM_SHOW_DETAILS, PARAM_SORT,
 ) = (
-    'show_nested', 'limit', 'marker',
-    'global_project', 'show_details',
-    'sort_dir', 'sort_keys',
+    'limit', 'marker', 'global_project',
+    'show_details', 'sort',
 )
 
 ACTION_NAMES = (
@@ -70,14 +71,14 @@ ADJUSTMENT_TYPES = (
 
 CLUSTER_ATTRS = (
     CLUSTER_NAME, CLUSTER_PROFILE, CLUSTER_DESIRED_CAPACITY,
-    CLUSTER_MIN_SIZE, CLUSTER_MAX_SIZE, CLUSTER_ID, CLUSTER_PARENT,
+    CLUSTER_MIN_SIZE, CLUSTER_MAX_SIZE, CLUSTER_ID,
     CLUSTER_DOMAIN, CLUSTER_PROJECT, CLUSTER_USER,
     CLUSTER_INIT_AT, CLUSTER_CREATED_AT, CLUSTER_UPDATED_AT,
     CLUSTER_STATUS, CLUSTER_STATUS_REASON, CLUSTER_TIMEOUT,
     CLUSTER_METADATA,
 ) = (
     'name', 'profile_id', 'desired_capacity',
-    'min_size', 'max_size', 'id', 'parent',
+    'min_size', 'max_size', 'id',
     'domain', 'project', 'user',
     'init_at', 'created_at', 'updated_at',
     'status', 'status_reason', 'timeout',
@@ -88,6 +89,12 @@ CLUSTER_SORT_KEYS = [
     CLUSTER_NAME, CLUSTER_STATUS,
     CLUSTER_INIT_AT, CLUSTER_CREATED_AT, CLUSTER_UPDATED_AT,
 ]
+
+DETECTION_TYPES = (
+    VM_LIFECYCLE_EVENTS, NODE_STATUS_POLLING, LB_STATUS_POLLING,
+) = (
+    'VM_LIFECYCLE_EVENTS', 'NODE_STATUS_POLLING', 'LB_STATUS_POLLING',
+)
 
 NODE_ATTRS = (
     NODE_INDEX, NODE_NAME, NODE_PROFILE_ID, NODE_CLUSTER_ID,
@@ -144,11 +151,11 @@ CLUSTER_POLICY_SORT_KEYS = [
 EVENT_ATTRS = (
     EVENT_TIMESTAMP, EVENT_OBJ_ID, EVENT_OBJ_NAME, EVENT_OBJ_TYPE,
     EVENT_USER, EVENT_ACTION, EVENT_STATUS, EVENT_STATUS_REASON,
-    EVENT_LEVEL,
+    EVENT_LEVEL, EVENT_CLUSTER_ID,
 ) = (
     'timestamp', 'obj_id', 'obj_name', 'obj_type',
     'user', 'action', 'status', 'status_reason',
-    'level',
+    'level', 'cluster_id',
 )
 
 EVENT_SORT_KEYS = [
@@ -211,3 +218,11 @@ ACTION_STATUSES = (
     'INIT', 'WAITING', 'READY', 'RUNNING',
     'SUCCEEDED', 'FAILED', 'CANCELLED',
 )
+
+EVENT_LEVELS = {
+    'CRITICAL': logging.CRITICAL,
+    'ERROR': logging.ERROR,
+    'WARNING': logging.WARNING,
+    'INFO': logging.INFO,
+    'DEBUG': logging.DEBUG,
+}

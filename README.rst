@@ -6,7 +6,7 @@ Overview
 --------
 
 Senlin is a clustering service for OpenStack clouds. It creates and operates
-clusters of homogenous objects exposed by other OpenStack services. The goal
+clusters of homogeneous objects exposed by other OpenStack services. The goal
 is to make the orchestration of collections of similar objects easier.
 
 Senlin provides RESTful APIs to users so that they can associate various
@@ -40,11 +40,13 @@ Launchpad Projects
 ------------------
 - Server: https://launchpad.net/senlin
 - Client: https://launchpad.net/python-senlinclient
+- Dashboard: https://launchpad.net/senlin-dashboard
 
 Code Repository
 ---------------
 - Server: https://git.openstack.org/cgit/openstack/senlin
 - Client: https://git.openstack.org/cgit/openstack/python-senlinclient
+- Dashboard: https://git.openstack.org/cgit/openstack/senlin-dashboard
 
 Blueprints
 ----------

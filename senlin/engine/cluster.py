@@ -21,7 +21,6 @@ from senlin.common.i18n import _LE
 from senlin.common import utils
 from senlin.db import api as db_api
 from senlin.engine import cluster_policy as cp_mod
-from senlin.engine import event as event_mod
 from senlin.engine import node as node_mod
 from senlin.policies import base as policy_base
 from senlin.profiles import base as profile_base
@@ -32,12 +31,12 @@ CONF = cfg.CONF
 
 
 class Cluster(object):
-    '''A cluster is a set of homogeneous objects of the same profile.
+    """A cluster is a collection of objects of the same profile type.
 
     All operations are performed without further checking because the
     checkings are supposed to be done before/after/during an action is
     excuted.
-    '''
+    """
 
     STATUSES = (
         INIT, ACTIVE, CREATING, UPDATING, RESIZING, DELETING,
@@ -62,7 +61,6 @@ class Cluster(object):
         self.user = kwargs.get('user', '')
         self.project = kwargs.get('project', '')
         self.domain = kwargs.get('domain', '')
-        self.parent = kwargs.get('parent', '')
 
         self.init_at = kwargs.get('init_at', None)
         self.created_at = kwargs.get('created_at', None)
@@ -124,7 +122,6 @@ class Cluster(object):
             'user': self.user,
             'project': self.project,
             'domain': self.domain,
-            'parent': self.parent,
             'init_at': self.init_at,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
@@ -143,13 +140,11 @@ class Cluster(object):
         if self.id:
             values['updated_at'] = timestamp
             db_api.cluster_update(context, self.id, values)
-            event_mod.info(context, self, 'update')
         else:
             self.init_at = timestamp
             values['init_at'] = timestamp
             cluster = db_api.cluster_create(context, values)
             self.id = cluster.id
-            event_mod.info(context, self, 'create')
 
         self._load_runtime_data(context)
         return self.id
@@ -166,7 +161,6 @@ class Cluster(object):
             'user': record.user,
             'project': record.project,
             'domain': record.domain,
-            'parent': record.parent,
             'init_at': record.init_at,
             'created_at': record.created_at,
             'updated_at': record.updated_at,
@@ -196,13 +190,12 @@ class Cluster(object):
 
     @classmethod
     def load_all(cls, context, limit=None, marker=None, sort=None,
-                 filters=None, project_safe=True, show_nested=False):
+                 filters=None, project_safe=True):
         '''Retrieve all clusters from database.'''
 
         records = db_api.cluster_get_all(context, limit=limit, marker=marker,
                                          sort=sort, filters=filters,
-                                         project_safe=project_safe,
-                                         show_nested=show_nested)
+                                         project_safe=project_safe)
 
         for record in records:
             cluster = cls._from_db_record(context, record)
@@ -216,7 +209,6 @@ class Cluster(object):
             'user': self.user,
             'project': self.project,
             'domain': self.domain,
-            'parent': self.parent,
             'init_at': utils.format_time(self.init_at),
             'created_at': utils.format_time(self.created_at),
             'updated_at': utils.format_time(self.updated_at),

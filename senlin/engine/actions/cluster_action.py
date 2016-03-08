@@ -20,6 +20,7 @@ from senlin.common import exception
 from senlin.common.i18n import _
 from senlin.common.i18n import _LI
 from senlin.common import scaleutils
+from senlin.common import utils
 from senlin.db import api as db_api
 from senlin.engine.actions import base
 from senlin.engine import cluster as cluster_mod
@@ -51,7 +52,7 @@ class ClusterAction(base.Action):
         consts.CLUSTER_UPDATE_POLICY,
     )
 
-    def __init__(self, target, action, context=None, **kwargs):
+    def __init__(self, target, action, context, **kwargs):
         """Constructor for cluster action.
 
         :param target: ID of the target cluster.
@@ -114,7 +115,7 @@ class ClusterAction(base.Action):
         placement = self.data.get('placement', None)
 
         nodes = []
-        child_actions = []
+        child = []
         for m in range(count):
             index = db_api.cluster_next_index(self.context, self.cluster.id)
             kwargs = {
@@ -139,24 +140,19 @@ class ClusterAction(base.Action):
             kwargs = {
                 'name': 'node_create_%s' % node.id[:8],
                 'cause': base.CAUSE_DERIVED,
-                'user': self.context.user,
-                'project': self.context.project,
-                'domain': self.context.domain,
             }
 
-            action = base.Action(node.id, 'NODE_CREATE', **kwargs)
-            action.store(self.context)
-            child_actions.append(action)
+            action_id = base.Action.create(self.context, node.id,
+                                           consts.NODE_CREATE, **kwargs)
+            child.append(action_id)
 
-        if child_actions:
+        if child:
             # Build dependency and make the new action ready
-            db_api.dependency_add(self.context,
-                                  [a.id for a in child_actions],
-                                  self.id)
-            for child in child_actions:
-                db_api.action_update(self.context, child.id,
-                                     {'status': child.READY})
-                dispatcher.start_action(action_id=child.id)
+            db_api.dependency_add(self.context, [a for a in child], self.id)
+            for cid in child:
+                db_api.action_update(self.context, cid,
+                                     {'status': base.Action.READY})
+                dispatcher.start_action(action_id=cid)
 
             # Wait for cluster creation to complete
             res, reason = self._wait_for_dependents()
@@ -168,6 +164,8 @@ class ClusterAction(base.Action):
                 self.data['creation'] = creation
                 for node in nodes:
                     self.cluster.add_node(node)
+            else:
+                reason = _('Failed in creating nodes.')
 
             return res, reason
 
@@ -211,57 +209,53 @@ class ClusterAction(base.Action):
 
         name = self.inputs.get('name')
         metadata = self.inputs.get('metadata')
-        parent = self.inputs.get('parent')
         timeout = self.inputs.get('timeout')
         profile_id = self.inputs.get('new_profile_id')
 
         if name is not None:
             self.cluster.name = name
-        if parent is not None:
-            self.cluster.parent = parent
         if metadata is not None:
             self.cluster.metadata = metadata
         if timeout is not None:
             self.cluster.timeout = timeout
         self.cluster.store(self.context)
 
-        if profile_id is not None:
-            fmt = _LI("Updating cluster '%(cluster)s': profile='%(profile)s'.")
-            LOG.info(fmt, {'cluster': self.cluster.id, 'profile': profile_id})
-            child_actions = []
-            for node in self.cluster.nodes:
-                kwargs = {
-                    'name': 'node_update_%s' % node.id[:8],
-                    'cause': base.CAUSE_DERIVED,
-                    'inputs': {
-                        'new_profile_id': profile_id,
-                    },
-                    'user': self.context.user,
-                    'project': self.context.project,
-                    'domain': self.context.domain,
-                }
-                action = base.Action(node.id, 'NODE_UPDATE', **kwargs)
-                action.store(self.context)
-                child_actions.append(action)
-
-            if child_actions:
-                db_api.dependency_add(self.context,
-                                      [c.id for c in child_actions],
-                                      self.id)
-                for child in child_actions:
-                    db_api.action_update(self.context, child.id,
-                                         {'status': child.READY})
-                    dispatcher.start_action(action_id=child.id)
-
-                result, new_reason = self._wait_for_dependents()
-                if result != self.RES_OK:
-                    self.cluster.set_status(self.context, self.cluster.WARNING,
-                                            new_reason)
-                    return result, new_reason
-
         reason = _('Cluster update completed.')
-        self.cluster.set_status(self.context, self.cluster.ACTIVE, reason,
-                                profile_id=profile_id)
+        if profile_id is None:
+            self.cluster.set_status(self.context, self.cluster.ACTIVE, reason)
+            return self.RES_OK, reason
+
+        fmt = _LI("Updating cluster '%(cluster)s': profile='%(profile)s'.")
+        LOG.info(fmt, {'cluster': self.cluster.id, 'profile': profile_id})
+        child = []
+        for node in self.cluster.nodes:
+            kwargs = {
+                'name': 'node_update_%s' % node.id[:8],
+                'cause': base.CAUSE_DERIVED,
+                'inputs': {
+                    'new_profile_id': profile_id,
+                },
+            }
+            action_id = base.Action.create(self.context, node.id,
+                                           consts.NODE_UPDATE, **kwargs)
+            child.append(action_id)
+
+        if child:
+            db_api.dependency_add(self.context, [c for c in child], self.id)
+            for cid in child:
+                db_api.action_update(self.context, cid,
+                                     {'status': base.Action.READY})
+                dispatcher.start_action(action_id=cid)
+
+            result, new_reason = self._wait_for_dependents()
+            if result != self.RES_OK:
+                new_reason = _('Failed in updating nodes.')
+                self.cluster.set_status(self.context, self.cluster.WARNING,
+                                        new_reason)
+                return result, new_reason
+
+        self.cluster.set_status(self.context, self.cluster.ACTIVE,
+                                reason, profile_id=profile_id)
         return self.RES_OK, reason
 
     def _delete_nodes(self, node_ids):
@@ -273,33 +267,31 @@ class ClusterAction(base.Action):
             if not destroy:
                 action_name = consts.NODE_LEAVE
 
-        child_actions = []
+        child = []
         for node_id in node_ids:
             kwargs = {
                 'name': 'node_delete_%s' % node_id[:8],
                 'cause': base.CAUSE_DERIVED,
-                'user': self.context.user,
-                'project': self.context.project,
-                'domain': self.context.domain,
             }
-            action = base.Action(node_id, action_name, **kwargs)
-            action.store(self.context)
-            child_actions.append(action)
+            action_id = base.Action.create(self.context, node_id, action_name,
+                                           **kwargs)
+            child.append(action_id)
 
-        if child_actions:
-            db_api.dependency_add(self.context, [c.id for c in child_actions],
-                                  self.id)
-            for child in child_actions:
+        if child:
+            db_api.dependency_add(self.context, [c for c in child], self.id)
+            for cid in child:
                 # Build dependency and make the new action ready
-                db_api.action_update(self.context, child.id,
-                                     {'status': child.READY})
-                dispatcher.start_action(action_id=child.id)
+                db_api.action_update(self.context, cid,
+                                     {'status': base.Action.READY})
+                dispatcher.start_action(action_id=cid)
 
             res, reason = self._wait_for_dependents()
             if res == self.RES_OK:
                 self.outputs['nodes_removed'] = node_ids
                 for node_id in node_ids:
                     self.cluster.remove_node(node_id)
+            else:
+                reason = _('Failed in deleting nodes.')
 
             return res, reason
 
@@ -372,27 +364,23 @@ class ClusterAction(base.Action):
 
         reason = _('Completed adding nodes.')
 
-        child_actions = []
+        child = []
         for node in nodes:
             kwargs = {
                 'name': 'node_join_%s' % node.id[:8],
                 'cause': base.CAUSE_DERIVED,
                 'inputs': {'cluster_id': self.target},
-                'user': self.context.user,
-                'project': self.context.project,
-                'domain': self.context.domain,
             }
-            action = base.Action(node.id, 'NODE_JOIN', **kwargs)
-            action.store(self.context)
-            child_actions.append(action)
+            action_id = base.Action.create(self.context, node.id,
+                                           consts.NODE_JOIN, **kwargs)
+            child.append(action_id)
 
-        if child_actions:
-            db_api.dependency_add(self.context, [c.id for c in child_actions],
-                                  self.id)
-            for child in child_actions:
-                db_api.action_update(self.context, child.id,
-                                     {'status': child.READY})
-                dispatcher.start_action(action_id=child.id)
+        if child:
+            db_api.dependency_add(self.context, [c for c in child], self.id)
+            for cid in child:
+                db_api.action_update(self.context, cid,
+                                     {'status': base.Action.READY})
+                dispatcher.start_action(action_id=cid)
 
         # Wait for dependent action if any
         result, new_reason = self._wait_for_dependents()
@@ -419,7 +407,7 @@ class ClusterAction(base.Action):
         pd = self.data.get('deletion', None)
         grace_period = None
         if pd is not None:
-            grace_period = self.data['deletion']['grace_period']
+            grace_period = self.data['deletion'].get('grace_period')
         else:  # if not, deleting nodes from cluster, don't destroy them
             data = {
                 'deletion': {
@@ -476,33 +464,35 @@ class ClusterAction(base.Action):
         """
         saved_status = self.cluster.status
         saved_reason = self.cluster.status_reason
-        self.cluster.do_check(self.context)
+        res = self.cluster.do_check(self.context)
+        if not res:
+            reason = _('Cluster checking failed.')
+            self.cluster.set_status(self.context, saved_status, saved_reason)
+            return self.RES_ERROR, reason
 
-        child_actions = []
+        child = []
+        res = self.RES_OK
+        reason = _('Cluster checking completed.')
         for node in self.cluster.nodes:
             node_id = node.id
-            kwargs = {
-                'name': 'node_check_%s' % node_id[:8],
-                'cause': base.CAUSE_DERIVED,
-                'user': self.context.user,
-                'project': self.context.project,
-                'domain': self.context.domain,
-            }
-            action = base.Action(node_id, 'NODE_CHECK', **kwargs)
-            action.store(self.context)
-            child_actions.append(action)
+            action_id = base.Action.create(
+                self.context, node_id, consts.NODE_CHECK,
+                name='node_check_%s' % node_id[:8],
+                cause=base.CAUSE_DERIVED,
+            )
+            child.append(action_id)
 
-        if child_actions:
-            db_api.dependency_add(self.context,
-                                  [c.id for c in child_actions],
-                                  self.id)
-            for child in child_actions:
-                db_api.action_update(self.context, child.id,
-                                     {'status': child.READY})
-                dispatcher.start_action(action_id=child.id)
+        if child:
+            db_api.dependency_add(self.context, [c for c in child], self.id)
+            for cid in child:
+                db_api.action_update(self.context, cid,
+                                     {'status': base.Action.READY})
+                dispatcher.start_action(action_id=cid)
 
-        # Wait for dependent action if any
-        res, reason = self._wait_for_dependents()
+            # Wait for dependent action if any
+            res, new_reason = self._wait_for_dependents()
+            if res != self.RES_OK:
+                reason = new_reason
 
         self.cluster.set_status(self.context, saved_status, saved_reason)
 
@@ -514,6 +504,10 @@ class ClusterAction(base.Action):
         :returns: A tuple containing the result and the corresponding reason.
         """
         res = self.cluster.do_recover(self.context)
+        if not res:
+            reason = _('Cluster recovery failed.')
+            self.cluster.set_status(self.context, self.cluster.ERROR, reason)
+            return self.RES_ERROR, reason
 
         # process data from health_policy
         pd = self.data.get('health', None)
@@ -528,48 +522,36 @@ class ClusterAction(base.Action):
 
         reason = _('Cluster recovery succeeded.')
 
-        child_actions = []
+        children = []
         for node in self.cluster.nodes:
             if node.status == 'ACTIVE':
                 continue
             node_id = node.id
-            kwargs = {
-                'name': 'node_recover_%s' % node_id[:8],
-                'cause': base.CAUSE_DERIVED,
-                'inputs': {
-                    'operation': recover_action,
-                },
-                'user': self.context.user,
-                'project': self.context.project,
-                'domain': self.context.domain,
-            }
-            action = base.Action(node_id, 'NODE_RECOVER', **kwargs)
-            action.store(self.context)
-            child_actions.append(action)
+            action_id = base.Action.create(
+                self.context, node_id, consts.NODE_RECOVER,
+                name='node_recover_%s' % node_id[:8],
+                cause=base.CAUSE_DERIVED,
+                inputs={'operation': recover_action}
+            )
+            children.append(action_id)
 
-        if child_actions:
-            db_api.dependency_add(self.context,
-                                  [c.id for c in child_actions],
-                                  self.id)
-            for child in child_actions:
-                db_api.action_update(self.context, child.id,
-                                     {'status': child.READY})
-                dispatcher.start_action(action_id=child.id)
+        if children:
+            db_api.dependency_add(self.context, [c for c in children], self.id)
+            for cid in children:
+                db_api.action_update(self.context, cid, {'status': 'READY'})
+                dispatcher.start_action(action_id=cid)
 
-        # Wait for dependent action if any
-        res, new_reason = self._wait_for_dependents()
+            # Wait for dependent action if any
+            res, reason = self._wait_for_dependents()
 
-        if res == self.RES_OK:
-            self.cluster.set_status(self.context, self.cluster.ACTIVE,
-                                    reason)
+            if res != self.RES_OK:
+                self.cluster.set_status(self.context, self.cluster.ERROR,
+                                        reason)
+                return res, reason
 
-            return res, reason
+        self.cluster.set_status(self.context, self.cluster.ACTIVE, reason)
 
-        reason = new_reason
-        self.cluster.set_status(self.context, self.cluster.ERROR,
-                                reason)
-
-        return res, reason
+        return self.RES_OK, reason
 
     def do_resize(self):
         """Handler for the CLUSTER_RESIZE action.
@@ -639,13 +621,15 @@ class ClusterAction(base.Action):
             # If no scaling policy is attached, use the
             # input count directly
             count = self.inputs.get('count', 1)
-
-        if count <= 0:
-            reason = _('Invalid count (%s) for scaling out.') % count
-            status_reason = _('Cluster scaling failed: %s') % reason
-            self.cluster.set_status(self.context, self.cluster.ACTIVE,
-                                    status_reason)
-            return self.RES_ERROR, reason
+            try:
+                count = utils.parse_int_param('count', count,
+                                              allow_zero=False)
+            except exception.InvalidParameter:
+                reason = _('Invalid count (%s) for scaling out.') % count
+                status_reason = _('Cluster scaling failed: %s') % reason
+                self.cluster.set_status(self.context, self.cluster.ACTIVE,
+                                        status_reason)
+                return self.RES_ERROR, reason
 
         # check provided params against current properties
         # desired is checked when strict is True
@@ -654,7 +638,7 @@ class ClusterAction(base.Action):
 
         result = scaleutils.check_size_params(self.cluster, new_size,
                                               None, None, True)
-        if result != '':
+        if result:
             status_reason = _('Cluster scaling failed: %s') % result
             self.cluster.set_status(self.context, self.cluster.ACTIVE,
                                     status_reason)
@@ -691,15 +675,17 @@ class ClusterAction(base.Action):
             count = len(candidates) or pd['count']
         else:
             # If no scaling policy is attached, use the input count directly
-            count = self.inputs.get('count', 1)
             candidates = []
-
-        if count <= 0:
-            reason = _('Invalid count (%s) for scaling in.') % count
-            status_reason = _('Cluster scaling failed: %s') % reason
-            self.cluster.set_status(self.context, self.cluster.ACTIVE,
-                                    status_reason)
-            return self.RES_ERROR, reason
+            count = self.inputs.get('count', 1)
+            try:
+                count = utils.parse_int_param('count', count,
+                                              allow_zero=False)
+            except exception.InvalidParameter:
+                reason = _('Invalid count (%s) for scaling in.') % count
+                status_reason = _('Cluster scaling failed: %s') % reason
+                self.cluster.set_status(self.context, self.cluster.ACTIVE,
+                                        status_reason)
+                return self.RES_ERROR, reason
 
         # check provided params against current properties
         # desired is checked when strict is True
@@ -712,8 +698,8 @@ class ClusterAction(base.Action):
         new_size = curr_size - count
 
         result = scaleutils.check_size_params(self.cluster, new_size,
-                                              None, None, False)
-        if result != '':
+                                              None, None, True)
+        if result:
             status_reason = _('Cluster scaling failed: %s') % result
             self.cluster.set_status(self.context, self.cluster.ACTIVE,
                                     status_reason)
@@ -833,7 +819,7 @@ class ClusterAction(base.Action):
         # Try to lock cluster before do real operation
         forced = True if self.action == self.CLUSTER_DELETE else False
         res = senlin_lock.cluster_lock_acquire(self.context, self.target,
-                                               self.id,
+                                               self.id, self.owner,
                                                senlin_lock.CLUSTER_SCOPE,
                                                forced)
         if not res:

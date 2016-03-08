@@ -165,9 +165,9 @@ class TestDeletionPolicy(base.SenlinTestCase):
             mock.call([node1], 1),
             mock.call([node2, node3], 1)
         ])
-        cluster.nodes_by_zone.assert_has_calls([
-            mock.call('AZ1'), mock.call('AZ2')
-        ])
+        cluster.nodes_by_zone.assert_has_calls(
+            [mock.call('AZ1'), mock.call('AZ2')],
+        )
 
     @mock.patch.object(su, 'nodes_by_profile_age')
     def test__victims_by_zones_profile_age(self, mock_select):
@@ -191,11 +191,9 @@ class TestDeletionPolicy(base.SenlinTestCase):
                 mock.call([node1], 1),
                 mock.call([node2, node3], 1)
             ],
-            any_order=True
         )
         cluster.nodes_by_zone.assert_has_calls(
             [mock.call('AZ1'), mock.call('AZ2')],
-            any_order=True
         )
 
     @mock.patch.object(su, 'nodes_by_age')
@@ -221,7 +219,6 @@ class TestDeletionPolicy(base.SenlinTestCase):
         ])
         cluster.nodes_by_zone.assert_has_calls(
             [mock.call('AZ1'), mock.call('AZ8')],
-            any_order=True
         )
 
     @mock.patch.object(su, 'nodes_by_age')
@@ -246,11 +243,9 @@ class TestDeletionPolicy(base.SenlinTestCase):
                 mock.call([node1], 1, False),
                 mock.call([node2, node3], 2, False)
             ],
-            any_order=True
         )
         cluster.nodes_by_zone.assert_has_calls(
             [mock.call('AZ5'), mock.call('AZ6')],
-            any_order=True
         )
 
     def test__update_action_clean(self):
@@ -555,4 +550,26 @@ class TestDeletionPolicy(base.SenlinTestCase):
         mock_load.assert_called_once_with(action.context,
                                           cluster=None, cluster_id='FAKE_ID')
         mock_select.assert_called_once_with(cluster.nodes, 2)
+        mock_update.assert_called_once_with(action, ['NODE1', 'NODE2'])
+
+    @mock.patch.object(dp.DeletionPolicy, '_update_action')
+    @mock.patch.object(su, 'nodes_by_age')
+    @mock.patch.object(cluster_mod.Cluster, 'load')
+    def test_pre_op_do_oldest_first(self, mock_load, mock_select, mock_update):
+        action = mock.Mock()
+        action.context = self.context
+        action.inputs = {}
+        action.data = {'deletion': {'count': 2}}
+
+        cluster = mock.Mock(nodes=['a', 'b', 'c'])
+        mock_select.return_value = ['NODE1', 'NODE2']
+        mock_load.return_value = cluster
+
+        self.spec['properties']['criteria'] = 'OLDEST_FIRST'
+        policy = dp.DeletionPolicy('test-policy', self.spec)
+        policy.pre_op('FAKE_ID', action)
+
+        mock_load.assert_called_once_with(action.context,
+                                          cluster=None, cluster_id='FAKE_ID')
+        mock_select.assert_called_once_with(cluster.nodes, 2, True)
         mock_update.assert_called_once_with(action, ['NODE1', 'NODE2'])

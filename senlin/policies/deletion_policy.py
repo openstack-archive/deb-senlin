@@ -13,26 +13,8 @@
 """
 Policy for deleting node(s) from a cluster.
 
-NOTE: How deletion policy works
-Input:
-  cluster: cluster whose nodes can be deleted
-  action.data['deletion']:
-    - count: number of nodes to delete; it can be customized by a
-             scaling policy for example. If no scaling policy is in
-             effect, deletion count is assumed to be 1
-  self.criteria: list of criteria for sorting nodes
-Output: stored in action.data
-  {
-    'status': 'OK',
-    'deletion': {
-      'count': '2',
-      'candidates': [
-        'node-id-1',
-        'node-id-2'
-      ],
-      'destroy_after_delete': 'True',
-    }
-  }
+NOTE: For full documentation about how the deletion policy works, check:
+http://docs.openstack.org/developer/senlin/developer/policies/deletion_v1.html
 """
 
 from senlin.common import constraints
@@ -46,12 +28,12 @@ from senlin.policies import base
 
 
 class DeletionPolicy(base.Policy):
-    '''Policy for choosing victim node(s) from a cluster for deletion.
+    """Policy for choosing victim node(s) from a cluster for deletion.
 
     This policy is enforced when nodes are to be removed from a cluster.
     It will yield an ordered list of candidates for deletion based on user
     specified criteria.
-    '''
+    """
 
     VERSION = '1.0'
 
@@ -117,7 +99,8 @@ class DeletionPolicy(base.Policy):
 
     def _victims_by_regions(self, cluster, regions):
         victims = []
-        for region, count in regions.items():
+        for region in sorted(regions.keys()):
+            count = regions[region]
             nodes = cluster.nodes_by_region(region)
             if self.criteria == self.RANDOM:
                 candidates = scaleutils.nodes_by_random(nodes, count)
@@ -134,7 +117,8 @@ class DeletionPolicy(base.Policy):
 
     def _victims_by_zones(self, cluster, zones):
         victims = []
-        for zone, count in zones.items():
+        for zone in sorted(zones.keys()):
+            count = zones[zone]
             nodes = cluster.nodes_by_zone(zone)
             if self.criteria == self.RANDOM:
                 candidates = scaleutils.nodes_by_random(nodes, count)

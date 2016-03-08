@@ -55,21 +55,18 @@ def cluster_get_by_short_id(context, short_id, project_safe=True):
 
 
 def cluster_get_all(context, limit=None, marker=None, sort=None, filters=None,
-                    project_safe=True, show_nested=False):
+                    project_safe=True):
     return IMPL.cluster_get_all(context, limit=limit, marker=marker, sort=sort,
-                                filters=filters, project_safe=project_safe,
-                                show_nested=show_nested)
+                                filters=filters, project_safe=project_safe)
 
 
 def cluster_next_index(context, cluster_id):
     return IMPL.cluster_next_index(context, cluster_id)
 
 
-def cluster_count_all(context, filters=None, project_safe=True,
-                      show_nested=False):
+def cluster_count_all(context, filters=None, project_safe=True):
     return IMPL.cluster_count_all(context, filters=filters,
-                                  project_safe=project_safe,
-                                  show_nested=show_nested)
+                                  project_safe=project_safe)
 
 
 def cluster_update(context, cluster_id, values):
@@ -108,6 +105,11 @@ def node_get_all(context, cluster_id=None, limit=None, marker=None, sort=None,
 def node_get_all_by_cluster(context, cluster_id, project_safe=True):
     return IMPL.node_get_all_by_cluster(context, cluster_id,
                                         project_safe=project_safe)
+
+
+def node_count_by_cluster(context, cluster_id, project_safe=True):
+    return IMPL.node_count_by_cluster(context, cluster_id,
+                                      project_safe=project_safe)
 
 
 def node_update(context, node_id, values):
@@ -297,16 +299,18 @@ def action_update(context, action_id, values):
     return IMPL.action_update(context, action_id, values)
 
 
-def action_get(context, action_id, refresh=False):
-    return IMPL.action_get(context, action_id, refresh=refresh)
+def action_get(context, action_id, project_safe=True, refresh=False):
+    return IMPL.action_get(context, action_id, project_safe=project_safe,
+                           refresh=refresh)
 
 
-def action_get_by_name(context, name):
-    return IMPL.action_get_by_name(context, name)
+def action_get_by_name(context, name, project_safe=True):
+    return IMPL.action_get_by_name(context, name, project_safe=project_safe)
 
 
-def action_get_by_short_id(context, short_id):
-    return IMPL.action_get_by_short_id(context, short_id)
+def action_get_by_short_id(context, short_id, project_safe=True):
+    return IMPL.action_get_by_short_id(context, short_id,
+                                       project_safe=project_safe)
 
 
 def action_get_all_by_owner(context, owner):
@@ -318,6 +322,10 @@ def action_get_all(context, filters=None, limit=None, marker=None, sort=None,
     return IMPL.action_get_all(context, filters=filters, sort=sort,
                                limit=limit, marker=marker,
                                project_safe=project_safe)
+
+
+def action_check_status(context, action_id, timestamp):
+    return IMPL.action_check_status(context, action_id, timestamp)
 
 
 def dependency_add(context, depended, dependent):
@@ -403,24 +411,43 @@ def receiver_delete(context, receiver_id):
     return IMPL.receiver_delete(context, receiver_id)
 
 
-def service_create(service_id=None, host=None, binary=None, topic=None):
-    return IMPL.service_create(service_id, host, binary, topic)
+def service_create(context, service_id, host=None, binary=None,
+                   topic=None):
+    return IMPL.service_create(context, service_id=service_id, host=host,
+                               binary=binary, topic=topic)
 
 
-def service_update(service_id, values=None):
-    return IMPL.service_update(service_id, values)
+def service_update(context, service_id, values=None):
+    return IMPL.service_update(context, service_id, values=values)
 
 
-def service_delete(service_id):
-    return IMPL.service_delete(service_id)
+def service_delete(context, service_id):
+    return IMPL.service_delete(context, service_id)
 
 
-def service_get(service_id):
-    return IMPL.service_get(service_id)
+def service_get(context, service_id):
+    return IMPL.service_get(context, service_id)
 
 
-def service_get_all():
-    return IMPL.service_get_all()
+def service_get_all(context):
+    return IMPL.service_get_all(context)
+
+
+def registry_create(context, cluster_id, check_type, interval, params,
+                    engine_id):
+    return IMPL.registry_create(context, cluster_id=cluster_id,
+                                check_type=check_type,
+                                interval=interval,
+                                params=params,
+                                engine_id=engine_id)
+
+
+def registry_delete(context, cluster_id):
+    return IMPL.registry_delete(context, cluster_id)
+
+
+def registry_claim(context, engine_id):
+    return IMPL.registry_claim(context, engine_id=engine_id)
 
 
 def db_sync(engine, version=None):

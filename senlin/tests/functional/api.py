@@ -10,12 +10,13 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import requests
+
 from oslo_serialization import jsonutils
 
 
 def create_cluster(client, name, profile_id, desired_capacity,
-                   min_size=0, max_size=-1, parent=None,
-                   metadata=None, timeout=120):
+                   min_size=0, max_size=-1, metadata=None, timeout=120):
     if not metadata:
         metadata = {}
     rel_url = 'clusters'
@@ -27,7 +28,6 @@ def create_cluster(client, name, profile_id, desired_capacity,
             'desired_capacity': desired_capacity,
             'min_size': min_size,
             'max_size': max_size,
-            'parent': parent,
             'metadata': metadata,
             'timeout': timeout,
         }
@@ -53,17 +53,43 @@ def list_clusters(client, **query):
     return resp.body['clusters']
 
 
+def update_cluster(client, cluster_id, name=None, metadata=None,
+                   timeout=None, profile=None):
+    rel_url = 'clusters/%(id)s' % {'id': cluster_id}
+    status = [202]
+    data = {}
+    if name:
+        data['name'] = name
+    if metadata:
+        data['metadata'] = metadata
+    if timeout:
+        data['timeout'] = timeout
+    if profile:
+        data['profile_id'] = profile
+    body = {'cluster': data}
+
+    body = jsonutils.dumps(body)
+    resp = client.api_request('PATCH', rel_url, body=body,
+                              resp_status=status)
+    action_id = resp.headers['location'].split('/actions/')[1]
+    return action_id
+
+
 def action_cluster(client, cluster_id, action_name, params=None):
     rel_url = 'clusters/%(id)s/actions' % {'id': cluster_id}
-    status = [202]
+    status = [202, 400]
     data = {
         action_name: {} if params is None else params
     }
     body = jsonutils.dumps(data)
     resp = client.api_request('POST', rel_url, body=body,
                               resp_status=status)
-    action_id = resp.body['action']
-    return action_id
+    if resp.status == 202:
+        res = resp.body['action']
+    else:  # resp.status == 400
+        res = resp.body['error']['message']
+
+    return res
 
 
 def delete_cluster(client, cluster_id):
@@ -93,8 +119,10 @@ def create_node(client, name, profile_id, cluster_id=None, role=None,
     return node
 
 
-def get_node(client, node_id, ignore_missing=False):
+def get_node(client, node_id, ignore_missing=False, show_details=False):
     rel_url = 'nodes/%(id)s' % {'id': node_id}
+    if show_details:
+        rel_url += '?show_details=True'
     status = [200, 404] if ignore_missing else [200]
     resp = client.api_request('GET', rel_url, resp_status=status)
     return resp if ignore_missing else resp.body['node']
@@ -188,3 +216,50 @@ def get_action(client, action_id, ignore_missing=False):
     status = [200, 404] if ignore_missing else [200]
     resp = client.api_request('GET', rel_url, resp_status=status)
     return resp if ignore_missing else resp.body['action']
+
+
+def create_receiver(client, name, cluster_id, action, r_type, params=None):
+    rel_url = 'receivers'
+    status = [201]
+    data = {
+        'receiver': {
+            'name': name,
+            'cluster_id': cluster_id,
+            'action': action,
+            'params': params,
+            'type': r_type
+        }
+    }
+    body = jsonutils.dumps(data)
+    resp = client.api_request('POST', rel_url, body=body,
+                              resp_status=status)
+
+    receiver = resp.body['receiver']
+    return receiver
+
+
+def get_receiver(client, receiver_id, ignore_missing=False):
+    rel_url = 'receivers/%(id)s' % {'id': receiver_id}
+    status = [200, 404] if ignore_missing else [200]
+    resp = client.api_request('GET', rel_url, resp_status=status)
+    return resp if ignore_missing else resp.body['receiver']
+
+
+def trigger_webhook(webhook_url, params=None):
+    body = None
+    if params is not None:
+        body = jsonutils.dumps(params)
+    resp = requests.request('POST', webhook_url, data=body)
+    if resp.content:
+        resp_body = jsonutils.loads(resp.content)
+        if 'action' in resp_body:
+            return resp_body['action']
+
+    raise Exception('Webhook %s triggering failed.' % webhook_url)
+
+
+def delete_receiver(client, receiver_id):
+    rel_url = 'receivers/%(id)s' % {'id': receiver_id}
+    status = [204]
+    client.api_request('DELETE', rel_url, resp_status=status)
+    return

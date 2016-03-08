@@ -16,14 +16,13 @@ import mock
 from oslo_config import cfg
 import six
 
-from senlin.common import context
 from senlin.common import exception
 from senlin.db.sqlalchemy import api as db_api
 from senlin.engine.actions import base as action_base
 from senlin.engine import cluster as cluster_mod
 from senlin.engine import cluster_policy as cp_mod
 from senlin.engine import environment
-from senlin.engine import event
+from senlin.engine import event as EVENT
 from senlin.engine import node as node_mod
 from senlin.policies import base as policy_mod
 from senlin.tests.unit.common import base
@@ -33,8 +32,8 @@ from senlin.tests.unit import fakes
 
 class DummyAction(action_base.Action):
 
-    def __init__(self, context, target, action, **kwargs):
-        super(DummyAction, self).__init__(context, target, action, **kwargs)
+    def __init__(self, target, action, context, **kwargs):
+        super(DummyAction, self).__init__(target, action, context, **kwargs)
 
 
 class ActionBaseTest(base.SenlinTestCase):
@@ -115,26 +114,6 @@ class ActionBaseTest(base.SenlinTestCase):
         self.assertEqual('FAKE_UPDATED_TIME', obj.updated_at)
         self.assertEqual({'data_key': 'data_value'}, obj.data)
 
-    @mock.patch.object(context.RequestContext, 'from_dict')
-    def test_action_init_without_context(self, mock_context):
-        target = mock.Mock()
-        target.id = 'ID'
-        user = 'USER1'
-        project = 'PROJ1'
-        domain = 'DOM1'
-        mock_context.return_value = 'FAKE_CONTEXT'
-
-        obj = action_base.Action(target, 'OBJECT_ACTION', user=user,
-                                 project=project, domain=domain)
-        params = {
-            'user': 'USER1',
-            'project': 'PROJ1',
-            'domain': 'DOM1',
-            'is_admin': False
-        }
-        mock_context.assert_called_once_with(params)
-        obj.context = 'FAKE_CONTEXT'
-
     def test_action_store_for_create(self):
         values = copy.deepcopy(self.action_values)
         obj = action_base.Action('OBJID', 'OBJECT_ACTION', self.ctx,
@@ -195,6 +174,9 @@ class ActionBaseTest(base.SenlinTestCase):
         self.assertEqual(obj.created_at, action_obj.created_at)
         self.assertEqual(obj.updated_at, action_obj.updated_at)
         self.assertEqual(obj.data, action_obj.data)
+        self.assertEqual(obj.user, action_obj.user)
+        self.assertEqual(obj.project, action_obj.project)
+        self.assertEqual(obj.domain, action_obj.domain)
 
     def test_from_db_record_with_empty_fields(self):
         values = copy.deepcopy(self.action_values)
@@ -276,6 +258,16 @@ class ActionBaseTest(base.SenlinTestCase):
             marker='FAKE_MARKER', sort='FAKE_SORT',
             project_safe=True)
 
+    @mock.patch.object(action_base.Action, 'store')
+    def test_action_create(self, mock_store):
+        mock_store.return_value = 'FAKE_ID'
+
+        result = action_base.Action.create(self.ctx, 'OBJ_ID', 'CLUSTER_DANCE',
+                                           name='test')
+
+        self.assertEqual('FAKE_ID', result)
+        mock_store.assert_called_once_with(self.ctx)
+
     def test_action_delete(self):
         result = action_base.Action.delete(self.ctx, 'non-existent')
         self.assertIsNone(result)
@@ -306,7 +298,7 @@ class ActionBaseTest(base.SenlinTestCase):
         self.assertEqual(0, mock_call.call_count)
 
     @mock.patch.object(db_api, 'action_signal')
-    @mock.patch.object(event, 'error')
+    @mock.patch.object(EVENT, 'error')
     def test_action_signal_cancel(self, mock_error, mock_call):
         values = copy.deepcopy(self.action_values)
         action = action_base.Action('OBJID', 'OBJECT_ACTION', self.ctx,
@@ -333,7 +325,7 @@ class ActionBaseTest(base.SenlinTestCase):
             mock_error.reset_mock()
 
     @mock.patch.object(db_api, 'action_signal')
-    @mock.patch.object(event, 'error')
+    @mock.patch.object(EVENT, 'error')
     def test_action_signal_suspend(self, mock_error, mock_call):
         action = action_base.Action('OBJID', 'OBJECT_ACTION', self.ctx)
 
@@ -357,7 +349,7 @@ class ActionBaseTest(base.SenlinTestCase):
             mock_error.reset_mock()
 
     @mock.patch.object(db_api, 'action_signal')
-    @mock.patch.object(event, 'error')
+    @mock.patch.object(EVENT, 'error')
     def test_action_signal_resume(self, mock_error, mock_call):
         action = action_base.Action('OBJID', 'OBJECT_ACTION', self.ctx)
 
@@ -381,8 +373,8 @@ class ActionBaseTest(base.SenlinTestCase):
             mock_error.reset_mock()
 
     def test_execute_default(self):
-        action = action_base.Action.__new__(DummyAction, self.ctx, 'OBJID',
-                                            'BOOM')
+        action = action_base.Action.__new__(DummyAction, 'OBJID', 'BOOM',
+                                            self.ctx)
         res = action.execute()
         self.assertEqual(NotImplemented, res)
 
@@ -427,11 +419,9 @@ class ActionBaseTest(base.SenlinTestCase):
         self.assertEqual('BUSY', action.status_reason)
         mock_abandon.assert_called_once_with(action.context, 'FAKE_ID')
 
-    @mock.patch.object(db_api, 'action_get')
+    @mock.patch.object(db_api, 'action_check_status')
     def test_get_status(self, mock_get):
-        obj = mock.Mock()
-        obj.status = 'FAKE_STATUS'
-        mock_get.return_value = obj
+        mock_get.return_value = 'FAKE_STATUS'
 
         action = action_base.Action('OBJID', 'OBJECT_ACTION', self.ctx)
         action.id = 'FAKE_ID'
@@ -440,8 +430,7 @@ class ActionBaseTest(base.SenlinTestCase):
 
         self.assertEqual('FAKE_STATUS', res)
         self.assertEqual('FAKE_STATUS', action.status)
-        mock_get.assert_called_once_with(action.context, 'FAKE_ID',
-                                         refresh=True)
+        mock_get.assert_called_once_with(action.context, 'FAKE_ID', mock.ANY)
 
     @mock.patch.object(action_base, 'wallclock')
     def test_is_timeout(self, mock_time):
@@ -799,7 +788,7 @@ class ActionProcTest(base.SenlinTestCase):
 
         self.ctx = utils.dummy_context()
 
-    @mock.patch.object(event, 'info')
+    @mock.patch.object(EVENT, 'info')
     @mock.patch.object(action_base.Action, 'load')
     @mock.patch.object(db_api, 'action_mark_succeeded')
     def test_action_proc_successful(self, mock_mark, mock_load,
@@ -820,7 +809,7 @@ class ActionProcTest(base.SenlinTestCase):
         self.assertEqual(123456, action.start_time)
         self.assertEqual('BIG SUCCESS', action.status_reason)
 
-    @mock.patch.object(event, 'info')
+    @mock.patch.object(EVENT, 'info')
     @mock.patch.object(action_base.Action, 'load')
     @mock.patch.object(db_api, 'action_mark_failed')
     def test_action_proc_failed_error(self, mock_mark, mock_load,

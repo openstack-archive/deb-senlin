@@ -182,6 +182,15 @@ class TestConstraintsSchema(testtools.TestCase):
         m = schema.Map('A map', schema={'Foo': s})
         self.assertEqual(d, dict(m))
 
+    def test_schema_map_resolve_json(self):
+        m = schema.Map('A map')
+        self.assertEqual({'foo': 'bar'}, m.resolve('{"foo": "bar"}'))
+
+    def test_schema_map_resolve_invalid(self):
+        m = schema.Map('A map')
+        ex = self.assertRaises(TypeError, m.resolve, 'oops')
+        self.assertEqual('"oops" is not a Map', six.text_type(ex))
+
     def test_schema_nested_schema(self):
         d = {
             'type': 'List',
@@ -282,7 +291,7 @@ class TestConstraintsSchema(testtools.TestCase):
                                spec.validate)
         msg = _('The value "%s" cannot be converted into an '
                 'integer.') % data['key2']
-        self.assertTrue(six.text_type(ex.message).find(msg) != -1)
+        self.assertNotEqual(-1, six.text_type(ex.message).find(msg))
 
     def test_policy_validate_fail_unrecognizable_key(self):
         spec_schema = {
@@ -294,7 +303,7 @@ class TestConstraintsSchema(testtools.TestCase):
         ex = self.assertRaises(exception.SpecValidationFailed,
                                spec.validate)
         msg = _('Unrecognizable spec item "%s"') % 'key2'
-        self.assertTrue(six.text_type(ex.message).find(msg) != -1)
+        self.assertNotEqual(-1, six.text_type(ex.message).find(msg))
 
     def test_policy_validate_fail_required_key_missing(self):
         spec_schema = {
@@ -307,7 +316,7 @@ class TestConstraintsSchema(testtools.TestCase):
         ex = self.assertRaises(exception.SpecValidationFailed,
                                spec.validate)
         msg = _('Required spec item "%s" not assigned') % 'key2'
-        self.assertTrue(six.text_type(ex.message).find(msg) != -1)
+        self.assertNotEqual(-1, six.text_type(ex.message).find(msg))
 
 
 class TestSpecVersionChecking(testtools.TestCase):

@@ -69,10 +69,6 @@ class ProfileControllerTest(shared.ControllerTest, base.SenlinTestCase):
         cfgopts = DummyConfig()
         self.controller = profiles.ProfileController(options=cfgopts)
 
-    def test_profile_default(self, mock_enforce):
-        req = self._get('/profiles')
-        self.assertRaises(exc.HTTPNotFound, self.controller.default, req)
-
     def test_profile_index_normal(self, mock_enforce):
         self._mock_enforce_setup(mock_enforce, 'index', True)
         req = self._get('/profiles')
@@ -112,9 +108,7 @@ class ProfileControllerTest(shared.ControllerTest, base.SenlinTestCase):
             'limit': 20,
             'marker': 'fake marker',
             'sort': 'fake sorting string',
-            'filters': None,
-            'global_project': False,
-            'balrog': 'you shall not pass!'
+            'global_project': False
         }
         req = self._get('/profiles', params=params)
 
@@ -132,14 +126,28 @@ class ProfileControllerTest(shared.ControllerTest, base.SenlinTestCase):
         self.assertIn('sort', engine_args)
         self.assertIn('filters', engine_args)
         self.assertIn('project_safe', engine_args)
-        self.assertNotIn('balrog', engine_args)
+
+    def test_profile_index_whitelist_bad_params(self, mock_enforce):
+        self._mock_enforce_setup(mock_enforce, 'index', True)
+        params = {
+            'balrog': 'fake_value'
+        }
+        req = self._get('/profiles', params=params)
+
+        mock_call = self.patchobject(rpc_client.EngineClient, 'call')
+        mock_call.return_value = []
+
+        ex = self.assertRaises(exc.HTTPBadRequest,
+                               self.controller.index, req)
+        self.assertEqual("Invalid parameter balrog", six.text_type(ex))
+        self.assertFalse(mock_call.called)
 
     def test_profile_index_whitelist_filter_params(self, mock_enforce):
         self._mock_enforce_setup(mock_enforce, 'index', True)
         params = {
             'type': 'some_type',
             'name': 'fake name',
-            'balrog': 'you shall not pass!'
+            'metadata': 'fake_data',
         }
         req = self._get('/profiles', params=params)
 
@@ -153,10 +161,24 @@ class ProfileControllerTest(shared.ControllerTest, base.SenlinTestCase):
         self.assertIn('filters', engine_args)
 
         filters = engine_args['filters']
-        self.assertEqual(2, len(filters))
+        self.assertEqual(3, len(filters))
         self.assertIn('name', filters)
         self.assertIn('type', filters)
-        self.assertNotIn('balrog', filters)
+        self.assertIn('metadata', filters)
+
+    def test_profile_index_whitelist_filter_bad_params(self, mock_enforce):
+        self._mock_enforce_setup(mock_enforce, 'index', True)
+        params = {
+            'balrog': 'fake_value'
+        }
+        req = self._get('/profiles', params=params)
+
+        mock_call = self.patchobject(rpc_client.EngineClient, 'call')
+
+        ex = self.assertRaises(exc.HTTPBadRequest,
+                               self.controller.index, req)
+        self.assertEqual("Invalid parameter balrog", six.text_type(ex))
+        self.assertFalse(mock_call.called)
 
     def test_profile_index_limit_non_int(self, mock_enforce):
         mock_call = self.patchobject(rpc_client.EngineClient, 'profile_list',
@@ -281,7 +303,6 @@ class ProfileControllerTest(shared.ControllerTest, base.SenlinTestCase):
                                           ('profile_create', body['profile']))
         self.assertEqual(404, resp.json['code'])
         self.assertEqual('ProfileTypeNotFound', resp.json['error']['type'])
-        self.assertIsNone(resp.json['error']['traceback'])
 
     def test_profile_create_with_spec_validation_failed(self, mock_enforce):
         self._mock_enforce_setup(mock_enforce, 'create', True)
@@ -310,7 +331,6 @@ class ProfileControllerTest(shared.ControllerTest, base.SenlinTestCase):
                                           ('profile_create', body['profile']))
         self.assertEqual(400, resp.json['code'])
         self.assertEqual('SpecValidationFailed', resp.json['error']['type'])
-        self.assertIsNone(resp.json['error']['traceback'])
 
     def test_profile_create_denied_policy(self, mock_enforce):
         self._mock_enforce_setup(mock_enforce, 'create', False)

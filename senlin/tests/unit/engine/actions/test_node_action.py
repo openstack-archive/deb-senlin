@@ -16,7 +16,7 @@ from senlin.common import scaleutils
 from senlin.engine.actions import base as base_action
 from senlin.engine.actions import node_action
 from senlin.engine import cluster as cluster_mod
-from senlin.engine import event as event_mod
+from senlin.engine import event as EVENT
 from senlin.engine import node as node_mod
 from senlin.engine import senlin_lock as lock
 from senlin.policies import base as policy_mod
@@ -65,7 +65,7 @@ class NodeActionTest(base.SenlinTestCase):
         node.do_create = mock.Mock(return_value=None)
         node.cluster_id = cluster.id
         mock_load.return_value = node
-        mock_check.return_value = ''
+        mock_check.return_value = None
         action = node_action.NodeAction(node.id, 'ACTION', self.ctx,
                                         cause=base_action.CAUSE_RPC)
 
@@ -134,7 +134,7 @@ class NodeActionTest(base.SenlinTestCase):
         node.do_delete = mock.Mock(return_value=None)
         node.cluster_id = cluster.id
         mock_load.return_value = node
-        mock_check.return_value = ''
+        mock_check.return_value = None
         action = node_action.NodeAction(node.id, 'ACTION', self.ctx,
                                         cause=base_action.CAUSE_RPC)
 
@@ -184,7 +184,7 @@ class NodeActionTest(base.SenlinTestCase):
         cluster = mock.Mock()
         cluster.desired_capacity = 100
         mock_c_load.return_value = cluster
-        mock_check.return_value = ''
+        mock_check.return_value = None
         node.do_join = mock.Mock(return_value=True)
 
         # Test failed node join path
@@ -237,7 +237,7 @@ class NodeActionTest(base.SenlinTestCase):
         cluster = mock.Mock()
         cluster.desired_capacity = 100
         mock_c_load.return_value = cluster
-        mock_check.return_value = ''
+        mock_check.return_value = None
         node.do_join = mock.Mock(return_value=False)
 
         # Test failed node join path
@@ -261,7 +261,7 @@ class NodeActionTest(base.SenlinTestCase):
         cluster.id = 'FAKE_ID'
         cluster.desired_capacity = 100
         mock_c_load.return_value = cluster
-        mock_check.return_value = ''
+        mock_check.return_value = None
         node.do_leave = mock.Mock(return_value=True)
 
         # Test failed node join path
@@ -334,7 +334,7 @@ class NodeActionTest(base.SenlinTestCase):
         cluster = mock.Mock()
         cluster.desired_capacity = 100
         mock_c_load.return_value = cluster
-        mock_check.return_value = ''
+        mock_check.return_value = None
         node.do_leave = mock.Mock(return_value=False)
 
         # Test failed node join path
@@ -359,7 +359,7 @@ class NodeActionTest(base.SenlinTestCase):
         self.assertEqual('GOOD', res_msg)
         action.do_sing.assert_called_once_with()
 
-    @mock.patch.object(event_mod, 'error')
+    @mock.patch.object(EVENT, 'error')
     def test_execute_bad_action(self, mock_error, mock_load):
         node = mock.Mock()
         node.id = 'NID'
@@ -393,7 +393,7 @@ class NodeActionTest(base.SenlinTestCase):
         self.assertEqual(reason, res_msg)
         mock_load.assert_called_once_with(action.context, node_id='NODE_ID')
         mock_acquire.assert_called_once_with(self.ctx, 'FAKE_CLUSTER',
-                                             'ACTION_ID',
+                                             'ACTION_ID', None,
                                              lock.NODE_SCOPE, False)
 
     @mock.patch.object(lock, 'cluster_lock_acquire')
@@ -422,7 +422,7 @@ class NodeActionTest(base.SenlinTestCase):
         self.assertEqual(reason, res_msg)
         mock_load.assert_called_once_with(action.context, node_id='NODE_ID')
         mock_acquire.assert_called_once_with(self.ctx, 'FAKE_CLUSTER',
-                                             'ACTION_ID',
+                                             'ACTION_ID', None,
                                              lock.NODE_SCOPE, False)
         mock_release.assert_called_once_with('FAKE_CLUSTER', 'ACTION_ID',
                                              lock.NODE_SCOPE)
@@ -459,13 +459,13 @@ class NodeActionTest(base.SenlinTestCase):
         self.assertEqual(reason, res_msg)
         mock_load.assert_called_once_with(action.context, node_id='NODE_ID')
         mock_acquire.assert_called_once_with(self.ctx, 'FAKE_CLUSTER',
-                                             'ACTION_ID',
+                                             'ACTION_ID', None,
                                              lock.NODE_SCOPE, False)
         mock_release.assert_called_once_with('FAKE_CLUSTER', 'ACTION_ID',
                                              lock.NODE_SCOPE)
         mock_check.assert_called_once_with('FAKE_CLUSTER', 'BEFORE')
         mock_acquire_node.assert_called_once_with(self.ctx, 'NODE_ID',
-                                                  'ACTION_ID', False)
+                                                  'ACTION_ID', None, False)
         mock_release_node.assert_called_once_with('NODE_ID', 'ACTION_ID')
 
     @mock.patch.object(lock, 'cluster_lock_acquire')
@@ -504,12 +504,12 @@ class NodeActionTest(base.SenlinTestCase):
         self.assertEqual(reason, res_msg)
         mock_load.assert_called_once_with(action.context, node_id='NODE_ID')
         mock_acquire.assert_called_once_with(self.ctx, 'FAKE_CLUSTER',
-                                             'ACTION_ID',
+                                             'ACTION_ID', None,
                                              lock.NODE_SCOPE, False)
         mock_release.assert_called_once_with('FAKE_CLUSTER', 'ACTION_ID',
                                              lock.NODE_SCOPE)
         mock_acquire_node.assert_called_once_with(self.ctx, 'NODE_ID',
-                                                  'ACTION_ID', False)
+                                                  'ACTION_ID', None, False)
         mock_release_node.assert_called_once_with('NODE_ID', 'ACTION_ID')
         check_calls = [
             mock.call('FAKE_CLUSTER', 'BEFORE'),
@@ -550,12 +550,12 @@ class NodeActionTest(base.SenlinTestCase):
         self.assertEqual(reason, res_msg)
         mock_load.assert_called_once_with(action.context, node_id='NODE_ID')
         mock_acquire.assert_called_once_with(self.ctx, 'FAKE_CLUSTER',
-                                             'ACTION_ID',
+                                             'ACTION_ID', None,
                                              lock.NODE_SCOPE, False)
         mock_release.assert_called_once_with('FAKE_CLUSTER', 'ACTION_ID',
                                              lock.NODE_SCOPE)
         mock_acquire_node.assert_called_once_with(self.ctx, 'NODE_ID',
-                                                  'ACTION_ID', False)
+                                                  'ACTION_ID', None, False)
         mock_release_node.assert_called_once_with('NODE_ID', 'ACTION_ID')
         mock_check.assert_called_once_with('FAKE_CLUSTER', 'BEFORE')
 
@@ -603,7 +603,7 @@ class NodeActionTest(base.SenlinTestCase):
         self.assertEqual(reason, res_msg)
         mock_load.assert_called_once_with(action.context, node_id='NODE_ID')
         mock_acquire.assert_called_once_with(self.ctx, 'FAKE_CLUSTER',
-                                             'ACTION_ID',
+                                             'ACTION_ID', None,
                                              lock.NODE_SCOPE, False)
         mock_release.assert_called_once_with('FAKE_CLUSTER', 'ACTION_ID',
                                              lock.NODE_SCOPE)
@@ -613,5 +613,5 @@ class NodeActionTest(base.SenlinTestCase):
         ]
         mock_check.assert_has_calls(check_calls)
         mock_acquire_node.assert_called_once_with(self.ctx, 'NODE_ID',
-                                                  'ACTION_ID', False)
+                                                  'ACTION_ID', None, False)
         mock_release_node.assert_called_once_with('NODE_ID', 'ACTION_ID')

@@ -17,10 +17,10 @@ Webhook endpoint for Senlin v1 ReST API.
 from webob import exc
 
 from senlin.api.common import util
+from senlin.api.common import wsgi
 from senlin.common import consts
 from senlin.common.i18n import _
 from senlin.common import utils
-from senlin.rpc import client as rpc_client
 
 
 class ReceiverData(object):
@@ -60,32 +60,29 @@ class ReceiverData(object):
         return self.data.get(consts.RECEIVER_PARAMS, None)
 
 
-class ReceiverController(object):
+class ReceiverController(wsgi.Controller):
     """WSGI controller for receiver resource in Senlin v1 API."""
 
     REQUEST_SCOPE = 'receivers'
 
-    def __init__(self, options):
-        self.options = options
-        self.rpc_client = rpc_client.EngineClient()
-
-    def default(self, req, **args):
-        raise exc.HTTPNotFound()
-
     @util.policy_enforce
     def index(self, req):
         filter_whitelist = {
-            'name': 'mixed',
-            'type': 'mixed',
-            'cluster_id': 'mixed',
-            'action': 'mixed',
+            consts.RECEIVER_NAME: 'mixed',
+            consts.RECEIVER_TYPE: 'mixed',
+            consts.RECEIVER_CLUSTER_ID: 'mixed',
+            consts.RECEIVER_ACTION: 'mixed',
         }
         param_whitelist = {
-            'limit': 'single',
-            'marker': 'single',
-            'sort': 'single',
-            'global_project': 'single',
+            consts.PARAM_LIMIT: 'single',
+            consts.PARAM_MARKER: 'single',
+            consts.PARAM_SORT: 'single',
+            consts.PARAM_GLOBAL_PROJECT: 'single',
         }
+        for key in req.params.keys():
+            if (key not in param_whitelist.keys() and key not in
+                    filter_whitelist.keys()):
+                raise exc.HTTPBadRequest(_('Invalid parameter %s') % key)
         params = util.get_allowed_params(req.params, param_whitelist)
         filters = util.get_allowed_params(req.params, filter_whitelist)
 

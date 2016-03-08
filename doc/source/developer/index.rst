@@ -12,15 +12,15 @@
   under the License.
 
 
-======================
-Contributing to Senlin
-======================
+============================
+Documentation for Developers
+============================
 
 Overview
 ~~~~~~~~
 
 Senlin is a **clustering service** for OpenStack clouds. It creates and
-operates clusters of homogenous objects exposed by other OpenStack services.
+operates clusters of homogeneous objects exposed by other OpenStack services.
 The goal is to make orchestration of collections of similar objects easier.
 
 This document targets senlin contributors.
@@ -41,6 +41,24 @@ Understanding the Design
    receiver
    testing
    plugin_guide
+
+
+Built-in Policy Types
+~~~~~~~~~~~~~~~~~~~~~
+
+Senlin provides some built-in policy types which can be instantiated and then
+attached to your clusters. These policy types are designed to be orthogonal so
+that each of them can be used independently. They are also expected to work
+in a collaborative way to meet the needs of complicated usage scenarios.
+
+.. toctree::
+   :maxdepth: 1
+
+   policies/deletion_v1
+   policies/load_balance_v1
+   policies/region_placement_v1
+   policies/scaling_v1
+   policies/zone_placement_v1
 
 
 API Documentation

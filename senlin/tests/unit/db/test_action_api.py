@@ -25,6 +25,9 @@ from senlin.tests.unit.db import shared
 
 def _create_action(context, action=shared.sample_action, **kwargs):
     data = parser.simple_parse(action)
+    data['user'] = context.user
+    data['project'] = context.project
+    data['domain'] = context.domain
     data.update(kwargs)
     return db_api.action_create(context, data)
 
@@ -36,7 +39,7 @@ class DBAPIActionTest(base.SenlinTestCase):
 
     def test_action_create(self):
         data = parser.simple_parse(shared.sample_action)
-        action = db_api.action_create(self.ctx, data)
+        action = _create_action(self.ctx)
 
         self.assertIsNotNone(action)
         self.assertEqual(data['name'], action.name)
@@ -47,11 +50,13 @@ class DBAPIActionTest(base.SenlinTestCase):
         self.assertEqual(data['status'], action.status)
         self.assertEqual(data['status_reason'], action.status_reason)
         self.assertEqual(10, action.inputs['max_size'])
+        self.assertEqual(self.ctx.user, action.user)
+        self.assertEqual(self.ctx.project, action.project)
+        self.assertEqual(self.ctx.domain, action.domain)
         self.assertIsNone(action.outputs)
 
     def test_action_update(self):
-        data = parser.simple_parse(shared.sample_action)
-        action = db_api.action_create(self.ctx, data)
+        action = _create_action(self.ctx)
         values = {
             'status': 'ERROR',
             'status_reason': 'Cluster creation failed',
@@ -81,6 +86,22 @@ class DBAPIActionTest(base.SenlinTestCase):
         self.assertEqual(data['status_reason'], retobj.status_reason)
         self.assertEqual(10, retobj.inputs['max_size'])
         self.assertIsNone(retobj.outputs)
+
+    def test_action_get_project_safe(self):
+        parser.simple_parse(shared.sample_action)
+        action = _create_action(self.ctx)
+        new_ctx = utils.dummy_context(project='another-project')
+        retobj = db_api.action_get(new_ctx, action.id, project_safe=True)
+        self.assertIsNone(retobj)
+        retobj = db_api.action_get(new_ctx, action.id, project_safe=False)
+        self.assertIsNotNone(retobj)
+
+    def test_action_get_with_admin_context(self):
+        parser.simple_parse(shared.sample_action)
+        action = _create_action(self.ctx)
+        new_ctx = utils.dummy_context(project='another-project', is_admin=True)
+        retobj = db_api.action_get(new_ctx, action.id, project_safe=True)
+        self.assertIsNotNone(retobj)
 
     def test_action_acquire_1st_ready(self):
         specs = [
@@ -132,6 +153,38 @@ class DBAPIActionTest(base.SenlinTestCase):
         names = [p.name for p in actions]
         for spec in specs:
             self.assertIn(spec['name'], names)
+
+    def test_action_check_status(self):
+        specs = [
+            {'name': 'A01', 'target': 'cluster_001'},
+            {'name': 'A02', 'target': 'node_001'},
+        ]
+
+        id_of = {}
+        for spec in specs:
+            action = _create_action(self.ctx, **spec)
+            id_of[spec['name']] = action.id
+
+        db_api.dependency_add(self.ctx, id_of['A02'], id_of['A01'])
+        action1 = db_api.action_get(self.ctx, id_of['A01'])
+        self.assertEqual(consts.ACTION_WAITING, action1.status)
+
+        timestamp = time.time()
+        status = db_api.action_check_status(self.ctx, id_of['A01'], timestamp)
+        self.assertEqual(consts.ACTION_WAITING, status)
+
+        status = db_api.action_check_status(self.ctx, id_of['A01'], timestamp)
+        self.assertEqual(consts.ACTION_WAITING, status)
+        timestamp = time.time()
+        db_api.action_mark_succeeded(self.ctx, id_of['A02'], timestamp)
+
+        status = db_api.action_check_status(self.ctx, id_of['A01'], timestamp)
+        self.assertEqual(consts.ACTION_READY, status)
+
+        action1 = db_api.action_get(self.ctx, id_of['A01'])
+        self.assertEqual('All depended actions completed.',
+                         action1.status_reason)
+        self.assertEqual(timestamp, action1.end_time)
 
     def _check_dependency_add_dependent_list(self):
         specs = [
@@ -299,6 +352,9 @@ class DBAPIActionTest(base.SenlinTestCase):
             self.assertEqual(consts.ACTION_FAILED, action.status)
             self.assertEqual(timestamp, action.end_time)
 
+        result = db_api.dependency_get_dependents(self.ctx, id_of['A01'])
+        self.assertEqual(0, len(result))
+
     def test_action_mark_cancelled(self):
         timestamp = time.time()
         id_of = self._prepare_action_mark_failed_cancel()
@@ -308,6 +364,9 @@ class DBAPIActionTest(base.SenlinTestCase):
             action = db_api.action_get(self.ctx, aid)
             self.assertEqual(consts.ACTION_CANCELLED, action.status)
             self.assertEqual(timestamp, action.end_time)
+
+        result = db_api.dependency_get_dependents(self.ctx, id_of['A01'])
+        self.assertEqual(0, len(result))
 
     def test_action_acquire(self):
         action = _create_action(self.ctx)

@@ -305,7 +305,7 @@ class ServerProfile(base.Profile):
             kwargs['name'] = obj.name
 
         metadata = self.properties[self.METADATA] or {}
-        if obj.cluster_id is not None:
+        if obj.cluster_id:
             metadata['cluster'] = obj.cluster_id
         kwargs['metadata'] = metadata
 
@@ -337,7 +337,13 @@ class ServerProfile(base.Profile):
             kwargs['networks'] = networks
 
         if 'placement' in obj.data:
-            kwargs['availability_zone'] = obj.data['placement']['zone']
+            if 'zone' in obj.data['placement']:
+                kwargs['availability_zone'] = obj.data['placement']['zone']
+            if 'servergroup' in obj.data['placement']:
+                group_id = obj.data['placement']['servergroup']
+                hints = self.properties.get(self.SCHEDULER_HINTS, {})
+                hints.update({'group': group_id})
+                kwargs['scheduler_hints'] = hints
 
         LOG.info('Creating server: %s' % kwargs)
         server = self.nova(obj).server_create(**kwargs)
@@ -502,6 +508,7 @@ class ServerProfile(base.Profile):
                 self.nova(obj).server_rebuild(obj.physical_id, new_image_id,
                                               self.properties.get(self.NAME),
                                               admin_password)
+                self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
         else:
             # TODO(Yanyan Hu): Allow server update with new_image
             # set to None if Nova service supports it
@@ -673,22 +680,19 @@ class ServerProfile(base.Profile):
 
     def do_join(self, obj, cluster_id):
         if not obj.physical_id:
-            return {}
+            return False
 
-        metadata = self.nova(obj).server_metadata_get(
-            server_id=obj.physical_id) or {}
+        metadata = self.nova(obj).server_metadata_get(obj.physical_id) or {}
         metadata['cluster'] = cluster_id
-        return self.nova(obj).server_metadata_update(**metadata)
+        self.nova(obj).server_metadata_update(obj.physical_id, metadata)
+        return super(ServerProfile, self).do_join(obj, cluster_id)
 
     def do_leave(self, obj):
         if not obj.physical_id:
-            return
+            return False
 
-        metadata = self.nova(obj).server_metadata_get(
-            server_id=obj.physical_id) or {}
-        if 'cluster' in metadata:
-            del metadata['cluster']
-        return self.nova(obj).server_metadata_update(**metadata)
+        self.nova(obj).server_metadata_delete(obj.physical_id, 'cluster')
+        return super(ServerProfile, self).do_leave(obj)
 
     def do_rebuild(self, obj):
         if not obj.physical_id:
@@ -713,6 +717,7 @@ class ServerProfile(base.Profile):
             self.nova(obj).server_rebuild(self.server_id, image_id,
                                           self.properties.get(self.NAME),
                                           admin_pass)
+            self.nova(obj).wait_for_server(self.server_id, 'ACTIVE')
         except Exception as ex:
             LOG.exception(_('Failed at rebuilding server: %s'),
                           six.text_type(ex))

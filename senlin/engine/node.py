@@ -20,7 +20,6 @@ from senlin.common.i18n import _
 from senlin.common.i18n import _LE
 from senlin.common import utils
 from senlin.db import api as db_api
-from senlin.engine import event as event_mod
 from senlin.profiles import base as profile_base
 
 LOG = logging.getLogger(__name__)
@@ -42,12 +41,18 @@ class Node(object):
         'DELETING', 'RECOVERING'
     )
 
-    def __init__(self, name, profile_id, cluster_id, context=None, **kwargs):
+    def __init__(self, name, profile_id, cluster_id=None, context=None,
+                 **kwargs):
         self.id = kwargs.get('id', None)
         if name:
             self.name = name
         else:
             self.name = 'node-' + utils.random_name(8)
+
+        # This is a safe guard to ensure that we have orphan node's cluster
+        # correctly set to an empty string
+        if cluster_id is None:
+            cluster_id = ''
 
         self.physical_id = kwargs.get('physical_id', '')
         self.profile_id = profile_id
@@ -116,13 +121,11 @@ class Node(object):
 
         if self.id:
             db_api.node_update(context, self.id, values)
-            event_mod.info(context, self, 'update')
         else:
             init_at = timeutils.utcnow()
             self.init_at = init_at
             values['init_at'] = init_at
             node = db_api.node_create(context, values)
-            event_mod.info(context, self, 'create')
             self.id = node.id
 
         self._load_runtime_data(context)
@@ -221,13 +224,12 @@ class Node(object):
         db_api.node_update(context, self.id, values)
 
     def get_details(self, context):
-        if self.physical_id is None or self.physical_id == '':
+        if not self.physical_id:
             return {}
         return profile_base.Profile.get_details(context, self)
 
     def _handle_exception(self, context, action, status, exception):
         msg = six.text_type(exception)
-        event_mod.warning(context, self, action, status, msg)
         self.physical_id = exception.kwargs.get('resource_id', None)
         if self.physical_id:
             reason = _('Profile failed in %(action)s resource (%(id)s) due '
@@ -245,7 +247,6 @@ class Node(object):
             LOG.error(_LE('Node is in status "%s"'), self.status)
             return False
         self.set_status(context, self.CREATING, reason='Creation in progress')
-        event_mod.info(context, self, 'create')
         try:
             physical_id = profile_base.Profile.create_object(context, self)
         except exception.InternalError as ex:
@@ -269,7 +270,6 @@ class Node(object):
 
         # TODO(Qiming): check if actions are working on it and can be canceled
         self.set_status(context, self.DELETING, reason='Deletion in progress')
-        event_mod.info(context, self, 'delete')
         try:
             res = profile_base.Profile.delete_object(context, self)
         except exception.ResourceStatusError as ex:
@@ -297,12 +297,14 @@ class Node(object):
                         reason='Update in progress')
 
         new_profile_id = params.pop('new_profile_id', None)
-        try:
-            res = profile_base.Profile.update_object(
-                context, self, new_profile_id, **params)
-        except exception.ResourceStatusError as ex:
-            self._handle_exception(context, 'update', self.ERROR, ex)
-            res = False
+        res = True
+        if new_profile_id:
+            try:
+                res = profile_base.Profile.update_object(
+                    context, self, new_profile_id, **params)
+            except exception.ResourceStatusError as ex:
+                self._handle_exception(context, 'update', self.ERROR, ex)
+                res = False
 
         if res:
             if 'name' in params:
@@ -323,28 +325,32 @@ class Node(object):
     def do_join(self, context, cluster_id):
         if self.cluster_id == cluster_id:
             return True
-        timestamp = timeutils.utcnow()
-        db_node = db_api.node_migrate(context, self.id, cluster_id,
-                                      timestamp)
-        self.cluster_id = cluster_id
-        self.updated_at = timestamp
-        self.index = db_node.index
-
-        profile_base.Profile.join_cluster(context, self, cluster_id)
-        return True
+        res = profile_base.Profile.join_cluster(context, self, cluster_id)
+        if res:
+            timestamp = timeutils.utcnow()
+            db_node = db_api.node_migrate(context, self.id, cluster_id,
+                                          timestamp)
+            self.cluster_id = cluster_id
+            self.updated_at = timestamp
+            self.index = db_node.index
+            return True
+        else:
+            return False
 
     def do_leave(self, context):
-        if self.cluster_id is None:
+        if self.cluster_id == '':
             return True
 
-        timestamp = timeutils.utcnow()
-        db_api.node_migrate(context, self.id, None, timestamp)
-        self.cluster_id = None
-        self.updated_at = timestamp
-        self.index = -1
-
-        profile_base.Profile.leave_cluster(context, self)
-        return True
+        res = profile_base.Profile.leave_cluster(context, self)
+        if res:
+            timestamp = timeutils.utcnow()
+            db_api.node_migrate(context, self.id, None, timestamp)
+            self.cluster_id = ''
+            self.updated_at = timestamp
+            self.index = -1
+            return True
+        else:
+            return False
 
     def do_check(self, context):
         if not self.physical_id:

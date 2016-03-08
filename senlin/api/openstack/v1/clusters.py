@@ -20,20 +20,19 @@ import six
 from webob import exc
 
 from senlin.api.common import util
+from senlin.api.common import wsgi
 from senlin.common import consts
 from senlin.common import exception as senlin_exc
 from senlin.common.i18n import _
 from senlin.common import utils
-from senlin.rpc import client as rpc_client
 
 
 class ClusterData(object):
-    '''The data accompanying a POST/PUT request to create/update a cluster.'''
+    """The data accompanying a POST/PUT request to create/update a cluster."""
 
     def __init__(self, data):
         self.name = data.get(consts.CLUSTER_NAME, None)
         self.profile = data.get(consts.CLUSTER_PROFILE, None)
-        self.parent = data.get(consts.CLUSTER_PARENT, None)
         self.metadata = data.get(consts.CLUSTER_METADATA, None)
 
         self.desired_capacity = data.get(consts.CLUSTER_DESIRED_CAPACITY, None)
@@ -112,8 +111,8 @@ class ClusterData(object):
                 raise exc.HTTPBadRequest(msg)
 
 
-class ClusterController(object):
-    '''WSGI controller for clusters resource in Senlin v1 API.'''
+class ClusterController(wsgi.Controller):
+    """WSGI controller for clusters resource in Senlin v1 API."""
 
     # Define request scope (must match what is in policy.json)
     REQUEST_SCOPE = 'clusters'
@@ -121,37 +120,31 @@ class ClusterController(object):
     SUPPORTED_ACTIONS = (
         ADD_NODES, DEL_NODES, SCALE_OUT, SCALE_IN, RESIZE,
         POLICY_ATTACH, POLICY_DETACH, POLICY_UPDATE,
+        CHECK, RECOVER
     ) = (
         'add_nodes', 'del_nodes', 'scale_out', 'scale_in', 'resize',
         'policy_attach', 'policy_detach', 'policy_update',
+        'check', 'recover'
     )
-
-    def __init__(self, options):
-        self.options = options
-        self.rpc_client = rpc_client.EngineClient()
-
-    def default(self, req, **args):
-        raise exc.HTTPNotFound()
 
     @util.policy_enforce
     def index(self, req):
         filter_whitelist = {
-            'status': 'mixed',
-            'name': 'mixed',
+            consts.CLUSTER_NAME: 'mixed',
+            consts.CLUSTER_STATUS: 'mixed',
         }
         param_whitelist = {
-            'limit': 'single',
-            'marker': 'single',
-            'sort': 'single',
-            'show_nested': 'single',
-            'global_project': 'single',
+            consts.PARAM_LIMIT: 'single',
+            consts.PARAM_MARKER: 'single',
+            consts.PARAM_SORT: 'single',
+            consts.PARAM_GLOBAL_PROJECT: 'single',
         }
+        for key in req.params.keys():
+            if (key not in param_whitelist.keys() and key not in
+                    filter_whitelist.keys()):
+                raise exc.HTTPBadRequest(_('Invalid parameter %s') % key)
         params = util.get_allowed_params(req.params, param_whitelist)
         filters = util.get_allowed_params(req.params, filter_whitelist)
-
-        key = consts.PARAM_SHOW_NESTED
-        if key in params:
-            params[key] = utils.parse_bool_param(key, params[key])
 
         key = consts.PARAM_GLOBAL_PROJECT
         if key in params:
@@ -168,7 +161,7 @@ class ClusterController(object):
 
     @util.policy_enforce
     def create(self, req, body):
-        '''Create a new cluster.'''
+        """Create a new cluster."""
 
         cluster_data = body.get('cluster')
         if cluster_data is None:
@@ -180,8 +173,7 @@ class ClusterController(object):
 
         cluster = self.rpc_client.cluster_create(
             req.context, data.name, data.desired_capacity, data.profile,
-            data.min_size, data.max_size, data.parent, data.metadata,
-            data.timeout)
+            data.min_size, data.max_size, data.metadata, data.timeout)
 
         result = {
             'cluster': cluster,
@@ -191,14 +183,14 @@ class ClusterController(object):
 
     @util.policy_enforce
     def get(self, req, cluster_id):
-        '''Gets detailed information for a cluster.'''
+        """Gets detailed information for a cluster."""
 
         cluster = self.rpc_client.cluster_get(req.context, cluster_id)
         return {'cluster': cluster}
 
     @util.policy_enforce
     def update(self, req, cluster_id, body):
-        '''Update an existing cluster with new parameters.'''
+        """Update an existing cluster with new parameters."""
 
         cluster_data = body.get('cluster')
         if cluster_data is None:
@@ -209,8 +201,8 @@ class ClusterController(object):
         data.validate_for_update()
 
         cluster = self.rpc_client.cluster_update(
-            req.context, cluster_id, data.name, data.profile, data.parent,
-            data.metadata, data.timeout)
+            req.context, cluster_id, data.name, data.profile, data.metadata,
+            data.timeout)
         action_id = cluster.pop('action')
         result = {
             'cluster': cluster,
@@ -239,14 +231,15 @@ class ClusterController(object):
                 msg = _("Missing adjustment_type value for resize "
                         "operation.")
                 raise exc.HTTPBadRequest(msg)
-            number = utils.parse_int_param('number', number,
+            number = utils.parse_int_param(consts.ADJUSTMENT_NUMBER, number,
                                            allow_negative=True)
 
         if min_size is not None:
-            min_size = utils.parse_int_param('min_size', min_size)
+            min_size = utils.parse_int_param(consts.ADJUSTMENT_MIN_SIZE,
+                                             min_size)
         if max_size is not None:
-            max_size = utils.parse_int_param('max_size', max_size,
-                                             allow_negative=True)
+            max_size = utils.parse_int_param(consts.ADJUSTMENT_MAX_SIZE,
+                                             max_size, allow_negative=True)
         if (min_size is not None and max_size is not None and
                 max_size > 0 and min_size > max_size):
             msg = _("The specified min_size (%(n)s) is greater than the "
@@ -255,9 +248,10 @@ class ClusterController(object):
             raise exc.HTTPBadRequest(msg)
 
         if min_step is not None:
-            min_step = utils.parse_int_param('min_step', min_step)
+            min_step = utils.parse_int_param(consts.ADJUSTMENT_MIN_STEP,
+                                             min_step)
         if strict is not None:
-            strict = utils.parse_bool_param('strict', strict)
+            strict = utils.parse_bool_param(consts.ADJUSTMENT_STRICT, strict)
 
         result = self.rpc_client.cluster_resize(req.context, cluster_id,
                                                 adj_type, number, min_size,
@@ -284,18 +278,18 @@ class ClusterController(object):
             raise exc.HTTPBadRequest(msg)
 
         if consts.CP_ENABLED in data:
-            enb = data.get(consts.CP_ENABLED)
+            enabled = data.get(consts.CP_ENABLED)
             try:
-                enb = utils.parse_bool_param('enabled', enb)
+                enabled = utils.parse_bool_param(consts.CP_ENABLED, enabled)
             except senlin_exc.InvalidParameter as ex:
                 raise exc.HTTPBadRequest(six.text_type(ex))
-            data[consts.CP_ENABLED] = enb
+            data[consts.CP_ENABLED] = enabled
 
         return data
 
     @util.policy_enforce
     def action(self, req, cluster_id, body=None):
-        '''Perform specified action on a cluster.'''
+        """Perform specified action on a cluster."""
         body = body or {}
         if len(body) < 1:
             raise exc.HTTPBadRequest(_('No action specified'))
@@ -343,21 +337,37 @@ class ClusterController(object):
                 raise exc.HTTPBadRequest(_('No policy specified for detach.'))
             res = self.rpc_client.cluster_policy_detach(req.context,
                                                         cluster_id, policy_id)
-        else:
+        elif this_action == self.POLICY_UPDATE:
             # this_action == self.POLICY_UPDATE:
             # Note the POLICY_UPDATE action includes policy-enable/disable
             raw_data = body.get(this_action)
             data = self._sanitize_policy(raw_data)
             res = self.rpc_client.cluster_policy_update(req.context,
                                                         cluster_id, **data)
+        elif this_action == self.CHECK:
+            params = body.get(this_action)
+            if not isinstance(params, dict):
+                msg = _("The params provided is not a map.")
+                raise exc.HTTPBadRequest(msg)
+            res = self.rpc_client.cluster_check(req.context, cluster_id,
+                                                params=params)
+        else:
+            # this_action == self.RECOVER:
+            params = body.get(this_action)
+            if not isinstance(params, dict):
+                msg = _("The params provided is not a map.")
+                raise exc.HTTPBadRequest(msg)
+            res = self.rpc_client.cluster_recover(req.context, cluster_id,
+                                                  params=params)
+
         location = {'location': '/actions/%s' % res['action']}
         res.update(location)
         return res
 
     @util.policy_enforce
     def delete(self, req, cluster_id):
-        cluster = self.rpc_client.cluster_delete(req.context,
-                                                 cluster_id,
-                                                 cast=False)
-        result = {'location': '/clusters/%s' % cluster}
+        res = self.rpc_client.cluster_delete(req.context, cluster_id,
+                                             cast=False)
+        action_id = res.pop('action')
+        result = {'location': '/actions/%s' % action_id}
         return result

@@ -19,7 +19,6 @@ from senlin.common import exception
 from senlin.common.i18n import _
 from senlin.common import utils as common_utils
 from senlin.db.sqlalchemy import api as db_api
-from senlin.engine import event as eventm
 from senlin.engine import node as nodem
 from senlin.profiles import base as profiles_base
 from senlin.tests.unit.common import base
@@ -100,8 +99,7 @@ class TestNode(base.SenlinTestCase):
         self.assertIsNotNone(node.name)
         self.assertEqual(13, len(node.name))
 
-    @mock.patch.object(eventm, 'info')
-    def test_node_store_init(self, mock_info):
+    def test_node_store_init(self):
         node = nodem.Node('node1', self.profile.id, self.cluster.id,
                           self.context, role='first_node',
                           index=1)
@@ -130,21 +128,14 @@ class TestNode(base.SenlinTestCase):
         self.assertEqual({}, node_info.meta_data)
         self.assertEqual({}, node_info.data)
 
-        mock_info.assert_called_once_with(self.context, node, 'create')
-
-    @mock.patch.object(eventm, 'info')
-    def test_node_store_update(self, mock_info):
+    def test_node_store_update(self):
         node = nodem.Node('node1', self.profile.id, None)
         node_id = node.store(self.context)
-
-        mock_info.assert_called_once_with(self.context, node, 'create')
-        mock_info.reset_mock()
 
         node.name = 'new_name'
         new_node_id = node.store(self.context)
 
         self.assertEqual(node_id, new_node_id)
-        mock_info.assert_called_once_with(self.context, node, 'update')
 
     def test_node_load(self):
         ex = self.assertRaises(exception.NodeNotFound,
@@ -325,8 +316,7 @@ class TestNode(base.SenlinTestCase):
         mock_details.assert_called_once_with(self.context, node)
         self.assertEqual({'foo': 'bar'}, res)
 
-    @mock.patch.object(eventm, 'warning')
-    def test_node_handle_exception(self, mock_warning):
+    def test_node_handle_exception(self):
         ex = exception.ResourceStatusError(resource_id='FAKE_ID',
                                            status='FAKE_STATUS',
                                            reason='FAKE_REASON')
@@ -339,8 +329,6 @@ class TestNode(base.SenlinTestCase):
                          '(FAKE_ID) due to: %s' % six.text_type(ex),
                          db_node.status_reason)
         self.assertEqual('FAKE_ID', db_node.physical_id)
-        mock_warning.assert_called_with(self.context, node, 'ACTION',
-                                        'STATUS', six.text_type(ex))
 
         # Exception happens before physical node creation started.
         ex = exception.ResourceCreationFailure(rtype='stack',
@@ -354,15 +342,11 @@ class TestNode(base.SenlinTestCase):
         self.assertEqual('Profile failed in creating node due to: '
                          '%s' % six.text_type(ex), db_node.status_reason)
         self.assertIsNone(db_node.physical_id)
-        mock_warning.assert_called_with(self.context, node, 'CREATE',
-                                        'STATUS', six.text_type(ex))
 
-    @mock.patch.object(eventm, 'info')
     @mock.patch.object(nodem.Node, 'store')
     @mock.patch.object(nodem.Node, 'set_status')
     @mock.patch.object(profiles_base.Profile, 'create_object')
-    def test_node_create(self, mock_create, mock_status, mock_store,
-                         mock_event):
+    def test_node_create(self, mock_create, mock_status, mock_store):
         node = nodem.Node('node1', self.profile.id, self.cluster.id,
                           self.context)
         physical_id = 'fake_id'
@@ -374,7 +358,6 @@ class TestNode(base.SenlinTestCase):
         mock_status.assert_any_call(self.context, node.ACTIVE,
                                     'Creation succeeded')
         mock_store.assert_called_once_with(self.context)
-        mock_event.assert_called_once_with(self.context, node, 'create')
         self.assertEqual(physical_id, node.physical_id)
 
     def test_node_create_not_init(self):
@@ -384,11 +367,10 @@ class TestNode(base.SenlinTestCase):
         res = node.do_create(self.context)
         self.assertFalse(res)
 
-    @mock.patch.object(eventm, 'info')
     @mock.patch.object(nodem.Node, 'set_status')
     @mock.patch.object(profiles_base.Profile, 'create_object')
-    def test_node_create_not_created(self, mock_create, mock_status,
-                                     mock_event):
+    def test_node_create_not_created(self, mock_create, mock_status):
+
         node = nodem.Node('node1', self.profile.id, self.cluster.id,
                           self.context)
         mock_create.return_value = None
@@ -396,16 +378,12 @@ class TestNode(base.SenlinTestCase):
         self.assertFalse(res)
         mock_status.assert_called_once_with(self.context, node.CREATING,
                                             reason='Creation in progress')
-        mock_event.assert_called_once_with(self.context, node, 'create')
 
-    @mock.patch.object(eventm, 'warning')
-    @mock.patch.object(eventm, 'info')
     @mock.patch.object(nodem.Node, 'store')
     @mock.patch.object(nodem.Node, 'set_status')
     @mock.patch.object(profiles_base.Profile, 'create_object')
-    def test_node_create_internal_error(self, mock_create,
-                                        mock_status, mock_store,
-                                        mock_info, mock_warning):
+    def test_node_create_internal_error(self, mock_create, mock_status,
+                                        mock_store):
         ex = exception.InternalError(code=500, message='internal error')
         mock_create.side_effect = ex
         node = nodem.Node('node1', self.profile.id, self.cluster.id,
@@ -414,19 +392,14 @@ class TestNode(base.SenlinTestCase):
         self.assertFalse(res)
         mock_status.assert_any_call(self.context, node.CREATING,
                                     reason='Creation in progress')
-        mock_info.assert_called_once_with(self.context, node, 'create')
-        mock_warning.assert_called_once_with(
-            self.context, node, 'create', node.ERROR, six.text_type(ex))
         reason = _('Profile failed in creating node due to: %(msg)s') % {
             'msg': six.text_type(ex)}
         mock_status.assert_any_call(self.context, node.ERROR, reason)
 
-    @mock.patch.object(eventm, 'info')
     @mock.patch.object(db_api, 'node_delete')
     @mock.patch.object(nodem.Node, 'set_status')
     @mock.patch.object(profiles_base.Profile, 'delete_object')
-    def test_node_delete(self, mock_delete, mock_status, mock_db_delete,
-                         mock_event):
+    def test_node_delete(self, mock_delete, mock_status, mock_db_delete):
         node = nodem.Node('node1', self.profile.id, self.cluster.id,
                           self.context)
         node.physical_id = 'fake_id'
@@ -436,7 +409,6 @@ class TestNode(base.SenlinTestCase):
         mock_db_delete.assert_called_once_with(mock.ANY, node.id, False)
         mock_status.assert_called_once_with(self.context, node.DELETING,
                                             reason='Deletion in progress')
-        mock_event.assert_called_once_with(self.context, node, 'delete')
 
     @mock.patch.object(db_api, 'node_delete')
     @mock.patch.object(profiles_base.Profile, 'delete_object')
@@ -449,13 +421,11 @@ class TestNode(base.SenlinTestCase):
         self.assertFalse(mock_delete.called)
         self.assertTrue(mock_db_delete.called)
 
-    @mock.patch.object(eventm, 'info')
     @mock.patch.object(nodem.Node, '_handle_exception')
     @mock.patch.object(nodem.Node, 'set_status')
     @mock.patch.object(profiles_base.Profile, 'delete_object')
     def test_node_delete_resource_status_error(self, mock_delete, mock_status,
-                                               mock_handle_exception,
-                                               mock_event):
+                                               mock_handle_exception):
         ex = exception.ResourceStatusError(resource_id='id', status='ERROR',
                                            reason='some reason')
         mock_delete.side_effect = ex
@@ -469,11 +439,10 @@ class TestNode(base.SenlinTestCase):
                                                       'ERROR', ex)
         mock_status.assert_any_call(self.context, 'ERROR',
                                     reason='Deletion failed')
-        mock_event.assert_called_once_with(self.context, node, 'delete')
 
     @mock.patch.object(nodem.Node, 'set_status')
     @mock.patch.object(profiles_base.Profile, 'update_object')
-    def test_node_update(self, mock_update, mock_status):
+    def test_node_update_new_profile(self, mock_update, mock_status):
         node = nodem.Node('node1', self.profile.id, self.cluster.id,
                           self.context)
         new_profile = self._create_profile('NEW_PROFILE_ID')
@@ -484,6 +453,19 @@ class TestNode(base.SenlinTestCase):
                                             new_profile.id)
         self.assertEqual('NEW_PROFILE_ID', node.profile_id)
         self.assertEqual('NEW_PROFILE_ID', node.rt['profile'].id)
+        mock_status.assert_any_call(self.context, 'UPDATING',
+                                    reason='Update in progress')
+        mock_status.assert_any_call(self.context, 'ACTIVE',
+                                    reason='Update succeeded')
+
+    @mock.patch.object(nodem.Node, 'set_status')
+    def test_node_update_name(self, mock_status):
+        node = nodem.Node('node1', self.profile.id, self.cluster.id,
+                          self.context)
+        node.physical_id = 'fake_id'
+        res = node.do_update(self.context, {'name': 'new_name'})
+        self.assertTrue(res)
+        self.assertEqual(node.name, 'new_name')
         mock_status.assert_any_call(self.context, 'UPDATING',
                                     reason='Update in progress')
         mock_status.assert_any_call(self.context, 'ACTIVE',
@@ -531,6 +513,7 @@ class TestNode(base.SenlinTestCase):
     def test_node_join(self, mock_migrate, mock_join_cluster, mock_time):
         node = nodem.Node('node1', self.profile.id, self.cluster.id,
                           self.context)
+        mock_join_cluster.return_value = True
         res = node.do_join(self.context, 'NEW_CLUSTER_ID')
         self.assertTrue(res)
         mock_migrate.assert_called_once_with(self.context, node.id,
@@ -542,12 +525,24 @@ class TestNode(base.SenlinTestCase):
         self.assertEqual(mock_migrate.return_value.index, node.index)
         self.assertIsNotNone(node.updated_at)
 
+    @mock.patch.object(profiles_base.Profile, 'join_cluster')
+    def test_node_join_fail_update_server_metadata(self, mock_join):
+        node = nodem.Node('node1', self.profile.id, None, self.context)
+        mock_join.return_value = False
+        res = node.do_join(self.context, 'NEW_CLUSTER_ID')
+        self.assertFalse(res)
+        self.assertEqual('', node.cluster_id)
+        self.assertEqual(-1, node.index)
+        self.assertIsNone(node.updated_at)
+        mock_join.assert_called_once_with(self.context, node,
+                                          'NEW_CLUSTER_ID')
+
     @mock.patch.object(db_api, 'node_migrate')
     def test_node_leave_no_cluster(self, mock_migrate):
-        node = nodem.Node('node1', self.profile.id, None, self.context)
+        node = nodem.Node('node1', self.profile.id, '', self.context)
         self.assertTrue(node.do_leave(self.context))
         self.assertFalse(mock_migrate.called)
-        self.assertIsNone(node.cluster_id)
+        self.assertEqual('', node.cluster_id)
         self.assertIsNone(node.updated_at)
 
     @mock.patch.object(timeutils, 'utcnow')
@@ -556,50 +551,116 @@ class TestNode(base.SenlinTestCase):
     def test_node_leave(self, mock_migrate, mock_leave_cluster, mock_time):
         node = nodem.Node('node1', self.profile.id, self.cluster.id,
                           self.context)
+        mock_leave_cluster.return_value = True
         res = node.do_leave(self.context)
         self.assertTrue(res)
-        self.assertIsNone(node.cluster_id)
+        self.assertEqual('', node.cluster_id)
         self.assertIsNotNone(node.updated_at)
         self.assertEqual(-1, node.index)
         mock_migrate.assert_called_once_with(self.context, node.id,
                                              None, mock_time(), None)
         mock_leave_cluster.assert_called_once_with(self.context, node)
 
+    @mock.patch.object(profiles_base.Profile, 'leave_cluster')
+    def test_node_leave_fail_update_server_metadata(self, mock_leave):
+        node = nodem.Node('node1', self.profile.id, self.cluster.id,
+                          self.context, index=1)
+        mock_leave.return_value = False
+        res = node.do_leave(self.context)
+        self.assertFalse(res)
+        self.assertNotEqual('', node.cluster_id)
+        self.assertIsNone(node.updated_at)
+        self.assertEqual(1, node.index)
+
     @mock.patch.object(profiles_base.Profile, 'check_object')
     def test_node_check(self, mock_check):
-        node = nodem.Node('node1', self.profile.id, self.cluster.id,
-                          self.context)
+        node = nodem.Node('node1', self.profile.id, '')
         node.physical_id = 'fake_id'
         mock_check.return_value = True
+
         res = node.do_check(self.context)
+
         self.assertTrue(res)
         mock_check.assert_called_once_with(self.context, node)
 
+    @mock.patch.object(nodem.Node, 'store')
+    @mock.patch.object(profiles_base.Profile, 'check_object')
+    def test_node_check_failed_check(self, mock_check, mock_store):
+        node = nodem.Node('node1', self.profile.id, '')
+        node.physical_id = 'fake_id'
         mock_check.return_value = False
+
         res = node.do_check(self.context)
+
         self.assertFalse(res)
         self.assertEqual('ERROR', node.status)
 
+    def test_node_check_no_physical_id(self):
+        node = nodem.Node('node1', self.profile.id, '')
+
+        res = node.do_check(self.context)
+
+        self.assertFalse(res)
+
     @mock.patch.object(nodem.Node, 'set_status')
     @mock.patch.object(profiles_base.Profile, 'recover_object')
-    def test_node_recover(self, mock_recover, mock_status):
-        node = nodem.Node('node1', self.profile.id, self.cluster.id,
-                          self.context)
+    def test_node_recover_new_object(self, mock_recover, mock_status):
+        node = nodem.Node('node1', self.profile.id, '')
         node.physical_id = 'fake_id'
         mock_recover.return_value = 'new_physical_id'
+
         res = node.do_recover(self.context)
+
         self.assertTrue(res)
         mock_recover.assert_called_once_with(self.context, node)
         self.assertEqual('node1', node.name)
         self.assertEqual('new_physical_id', node.physical_id)
         self.assertEqual(self.profile.id, node.profile_id)
-        mock_status.assert_any_call(self.context, 'RECOVERING',
-                                    reason='Recover in progress')
-        mock_status.assert_any_call(self.context, node.ACTIVE,
-                                    reason='Recover succeeded')
+        mock_status.assert_has_calls([
+            mock.call(self.context, 'RECOVERING',
+                      reason='Recover in progress'),
+            mock.call(self.context, node.ACTIVE,
+                      reason='Recover succeeded')])
 
-        mock_recover.return_value = None
+    @mock.patch.object(nodem.Node, 'set_status')
+    @mock.patch.object(profiles_base.Profile, 'recover_object')
+    def test_node_recover_in_place(self, mock_recover, mock_status):
+        node = nodem.Node('node1', self.profile.id, '')
+        node.physical_id = 'fake_id'
+        mock_recover.return_value = 'fake_id'
+
         res = node.do_recover(self.context)
+
+        self.assertTrue(res)
+        mock_recover.assert_called_once_with(self.context, node)
+        self.assertEqual('node1', node.name)
+        self.assertEqual('fake_id', node.physical_id)
+        self.assertEqual(self.profile.id, node.profile_id)
+        mock_status.assert_has_calls([
+            mock.call(self.context, 'RECOVERING',
+                      reason='Recover in progress'),
+            mock.call(self.context, node.ACTIVE,
+                      reason='Recover succeeded')])
+
+    @mock.patch.object(nodem.Node, 'set_status')
+    @mock.patch.object(profiles_base.Profile, 'recover_object')
+    def test_node_recover_failed_recover(self, mock_recover, mock_status):
+        node = nodem.Node('node1', self.profile.id, '')
+        node.physical_id = 'fake_id'
+        mock_recover.return_value = None
+
+        res = node.do_recover(self.context)
+
         self.assertFalse(res)
-        mock_status.assert_any_call(self.context, node.ERROR,
-                                    reason='Recover failed')
+        mock_status.assert_has_calls([
+            mock.call(self.context, 'RECOVERING',
+                      reason='Recover in progress'),
+            mock.call(self.context, node.ERROR,
+                      reason='Recover failed')])
+
+    def test_node_recover_no_physical_id(self):
+        node = nodem.Node('node1', self.profile.id, '')
+
+        res = node.do_recover(self.context)
+
+        self.assertFalse(res)
