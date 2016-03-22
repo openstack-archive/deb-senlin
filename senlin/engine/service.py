@@ -39,7 +39,6 @@ from senlin.engine import cluster as cluster_mod
 from senlin.engine import cluster_policy
 from senlin.engine import dispatcher
 from senlin.engine import environment
-from senlin.engine import event as EVENT
 from senlin.engine import health_manager
 from senlin.engine import node as node_mod
 from senlin.engine import receiver as receiver_mod
@@ -179,6 +178,67 @@ class EngineService(service.Service):
                 # hasn't been updated, assuming it's died.
                 LOG.info(_LI('Service %s was aborted'), svc['id'])
                 db_api.service_delete(ctx, svc['id'])
+
+    @request_context
+    def credential_create(self, context, cred, attrs=None):
+        """Create the credential based on the context.
+
+        We may add more parameters in future to the query parameter, for
+        example as Senlin expands its support to non-OpenStack backends.
+
+        :param context: The requesting context which contains the user id
+                        along with other identity information.
+        :param cred: A credential to be associated with the user identity
+                     provided in the context.
+        :param dict attrs: Optional attributes associated with the credential.
+        :return: A dictionary containing the persistent credential.
+        """
+        values = {
+            'user': context.user,
+            'project': context.project,
+            'cred': {
+                'openstack': {
+                    'trust': cred
+                }
+            }
+        }
+        db_api.cred_create(context, values)
+        return {'cred': cred}
+
+    @request_context
+    def credential_get(self, context, query=None):
+        """Get the credential based on the context.
+
+        We may add more parameters in future to the query parameter, for
+        example as Senlin expands its support to non-OpenStack backends.
+
+        :param context: The requesting context which contains the user id
+            along with other identity information.
+        :param dict query: Optional query parameters.
+        :return: A dictionary containing the persistent credential, or None
+            if no matching credential is found.
+        """
+        res = db_api.cred_get(context, context.user, context.project)
+        if res is None:
+            return None
+        return res.cred.get('openstack', None)
+
+    @request_context
+    def credential_update(self, context, cred, **attrs):
+        """Update a credential based on the context and provided value.
+
+        We may add more parameters in future to the query parameter, for
+        example as Senlin expands its support to non-OpenStack backends.
+
+        :param context: The requesting context which contains the user id
+                        along with other identity information.
+        :param dict attrs: Optional attribute values to be associated with
+                           the credential.
+        :return: A dictionary containing the updated credential.
+        """
+        db_api.cred_update(context, context.user, context.project,
+                           {'cred': {'openstack': {'trust': cred}}})
+        return {'cred': cred}
 
     @request_context
     def get_revision(self, context):
@@ -907,6 +967,12 @@ class EngineService(service.Service):
             LOG.error(error)
             raise exception.BadRequest(msg=error)
 
+        target_size = db_cluster.desired_capacity + len(found)
+        error = su.check_size_params(db_cluster, target_size, strict=True)
+        if error:
+            LOG.error(error)
+            raise exception.BadRequest(msg=error)
+
         params = {
             'name': 'cluster_add_nodes_%s' % db_cluster.id[:8],
             'cause': action_mod.CAUSE_RPC,
@@ -957,6 +1023,12 @@ class EngineService(service.Service):
             error = _("No nodes specified.")
 
         if error is not None:
+            LOG.error(error)
+            raise exception.BadRequest(msg=error)
+
+        target_size = db_cluster.desired_capacity - len(found)
+        error = su.check_size_params(db_cluster, target_size, strict=True)
+        if error:
             LOG.error(error)
             raise exception.BadRequest(msg=error)
 
@@ -2080,12 +2152,11 @@ class EngineService(service.Service):
             if value is not None:
                 filters[consts.EVENT_LEVEL] = value
 
-        all_events = EVENT.Event.load_all(context, filters=filters,
+        all_events = db_api.event_get_all(context, filters=filters,
                                           limit=limit, marker=marker,
-                                          sort=sort,
-                                          project_safe=project_safe)
+                                          sort=sort, project_safe=project_safe)
 
-        results = [event.to_dict() for event in all_events]
+        results = [event.as_dict() for event in all_events]
         return results
 
     @request_context
@@ -2099,5 +2170,4 @@ class EngineService(service.Service):
                  found.
         """
         db_event = self.event_find(context, identity)
-        event = EVENT.Event.load(context, db_event=db_event)
-        return event.to_dict()
+        return db_event.as_dict()

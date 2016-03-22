@@ -81,7 +81,6 @@ class Cluster(object):
         self.metadata = kwargs.get('metadata') or {}
 
         # rt is a dict for runtime data
-        # TODO(Qiming): nodes have to be reloaded when membership changes
         self.rt = {
             'profile': None,
             'nodes': [],
@@ -246,7 +245,8 @@ class Cluster(object):
         if status == self.ACTIVE and self.status == self.CREATING:
             self.created_at = now
             values['created_at'] = now
-        elif status == self.ACTIVE and self.status == self.UPDATING:
+        elif (status == self.ACTIVE and
+              self.status in (self.UPDATING, self.RESIZING)):
             self.updated_at = now
             values['updated_at'] = now
 

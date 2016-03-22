@@ -13,40 +13,8 @@
 """
 Policy for scheduling nodes across availability zones.
 
-NOTE: How this policy works
-Input:
-  cluster: cluster whose nodes are to be manipulated.
-  action.data['creation']:
-    - count: number of nodes to create. It can be decision from a scaling
-             policy. If no scaling policy is in effect, the count will be
-             assumed to be 1.
-  action.data['deleteion']:
-    - count: number of nodes to delete. It can be decision from a scaling
-             policy. If no scaling policy is in effect, the count will be
-             assumed to be 1.
-Output:
-  action.data: A dictionary containing scheduling decisions made.
-
-  For actions that increase the size of a cluster, the output looks like::
-
-  {
-    'status': 'OK',
-    'creation': {
-      'count': 2,
-      'zones': {'nova-1': 1, 'nova-2': 1}
-     }
-  }
-
-  For actions that decrease the size of a cluster, the output looks like::
-
-  {
-    'status': 'OK',
-    'deletion': {
-      'count': 3,
-      'zones': {'nova-1': 2, 'nova-2': 1}
-     }
-  }
-
+NOTE: For full documentation about how the policy works, check:
+http://docs.openstack.org/developer/senlin/developer/policies/zone_v1.html
 """
 
 import math
@@ -56,11 +24,11 @@ from oslo_log import log as logging
 from senlin.common import consts
 from senlin.common.i18n import _
 from senlin.common.i18n import _LE
+from senlin.common import scaleutils
 from senlin.common import schema
-
+from senlin.db import api as db_api
 from senlin.drivers import base as driver_base
 from senlin.engine import cluster as cluster_mod
-
 from senlin.policies import base
 
 LOG = logging.getLogger(__name__)
@@ -74,9 +42,9 @@ class ZonePlacementPolicy(base.Policy):
     PRIORITY = 300
 
     TARGET = [
-        # TODO(anyone): enable this to handle CLUSTER_RESIZE action
         ('BEFORE', consts.CLUSTER_SCALE_OUT),
         ('BEFORE', consts.CLUSTER_SCALE_IN),
+        ('BEFORE', consts.CLUSTER_RESIZE),
     ]
 
     PROFILE_TYPE = [
@@ -187,24 +155,62 @@ class ZonePlacementPolicy(base.Policy):
 
         return result
 
+    def _get_count(self, cluster_id, action):
+        """Get number of nodes to create or delete.
+
+        :param cluster_id: The ID of the target cluster.
+        :param action: The action object which triggered this policy check.
+        :return: An integer value which can be 1) positive - number of nodes
+                 to create; 2) negative - number of nodes to delete; 3) 0 -
+                 something wrong happened, and the policy check failed.
+        """
+        if action.action == consts.CLUSTER_RESIZE:
+            if action.data.get('deletion', None):
+                return -action.data['deletion']['count']
+            elif action.data.get('creation', None):
+                return action.data['creation']['count']
+
+            db_cluster = db_api.cluster_get(action.context, cluster_id)
+            res = scaleutils.parse_resize_params(action, db_cluster)
+            if res[0] == base.CHECK_ERROR:
+                action.data['status'] = base.CHECK_ERROR
+                action.data['reason'] = res[1]
+                LOG.error(res[1])
+                return 0
+
+            if action.data.get('deletion', None):
+                return -action.data['deletion']['count']
+            else:
+                return action.data['creation']['count']
+
+        if action.action == consts.CLUSTER_SCALE_IN:
+            pd = action.data.get('deletion', None)
+            if pd is None:
+                return -action.inputs.get('count', 1)
+            else:
+                return -pd.get('count', 1)
+
+        # CLUSTER_SCALE_OUT: an action that inflates the cluster
+        pd = action.data.get('creation', None)
+        if pd is None:
+            return action.inputs.get('count', 1)
+        else:
+            return pd.get('count', 1)
+
     def pre_op(self, cluster_id, action):
         """Callback function when cluster membership is about to change.
 
         :param cluster_id: ID of the target cluster.
         :param action: The action that triggers this policy check.
         """
+        count = self._get_count(cluster_id, action)
+        if count == 0:
+            return
 
-        count = action.inputs.get('count', None)
-        if action.action == consts.CLUSTER_SCALE_IN:
+        expand = True
+        if count < 0:
             expand = False
-            if not count:
-                pd = action.data.get('deletion', None)
-                count = pd.get('count', 1) if pd else 1
-        else:
-            expand = True
-            if not count:
-                pd = action.data.get('creation', None)
-                count = pd.get('count', 1) if pd else 1
+            count = -count
 
         cluster = cluster_mod.Cluster.load(action.context, cluster_id)
 

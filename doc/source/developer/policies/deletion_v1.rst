@@ -150,7 +150,7 @@ so the policy works in the same way as described in scenario **S3**.
 S6: Deletion across Multiple Availability Zones
 -----------------------------------------------
 
-When you have a :doc:`zone placement policy <zone_placement_v1>` attached to
+When you have a :doc:`zone placement policy <zone_v1>` attached to
 a cluster, the zone placement policy will decide in which availability zone(s)
 new nodes will be placed and from which availability zone(s) old nodes should
 be deleted to maintain an expected node distribution. Such a zone placement
@@ -200,7 +200,7 @@ zone ``AZ-1``, one of the nodes is from availability zone ``AZ-2``.
 S6: Deletion across Multiple Regions
 ------------------------------------
 
-When you have a :doc:`region placement policy <region_placement_v1>` attached
+When you have a :doc:`region placement policy <region_v1>` attached
 to a cluster, the region placement policy will decide to which region(s) new
 nodes will be placed and from which region(s) old nodes should be deleted to
 maintain an expected node distribution. Such a region placement policy will be

@@ -51,14 +51,14 @@ Manual Installation
 Install Senlin Server
 ---------------------
 
-1. Get Senlin source code from OpenStack git repository
+1. Get Senlin source code from OpenStack git repository.
 
 ::
 
   $ cd /opt/stack
   $ git clone http://git.openstack.org/openstack/senlin.git
 
-2. Install Senlin with required packages
+2. Install Senlin with required packages.
 
 ::
 
@@ -93,7 +93,7 @@ The most common options to be customized include:
 ::
 
   [database]
-  connection = mysql://senlin:<DB PASSWORD>@127.0.0.1/senlin?charset=utf8
+  connection = mysql://senlin:<MYSQL_SENLIN_PW>@127.0.0.1/senlin?charset=utf8
 
   [keystone_authtoken]
   auth_uri = http://<HOST>:5000/v3
@@ -115,11 +115,12 @@ The most common options to be customized include:
   rabbit_hosts = <HOST>
   rabbit_password = <RABBIT PASSWORD>
 
-5. Create Senlin Database
+5. Create Senlin Database.
 
  Create Senlin database using the :command:`senlin-db-recreate` script under
  the :file:`tools` subdirectory. Before calling the script, you need edit it
- to customize the password you will use for the ``senlin`` user.
+ to customize the password you will use for the ``senlin`` user. You need to
+ update this script with the <DB PASSWORD> entered in step4.
 
 ::
 
@@ -128,7 +129,7 @@ The most common options to be customized include:
 
 6. Start senlin engine and api service.
 
- You may need two consoles for the services each.
+ You may need two consoles for the services i.e., one for each service.
 
 ::
 
@@ -151,5 +152,25 @@ Install Senlin Client
 
   $ cd python-senlinclient
   $ sudo python setup.py install
+
+Verify Your Installation
+------------------------
+
+To check whether Senlin Server is successfully installed, run command 'senlin build-info'
+in a console. The installation is successful if the command output looks similar to the following.
+
+::
+
+  $ senlin build-info
+  +----------+---------------------+
+  | Property | Value               |
+  +----------+---------------------+
+  | api      | {                   |
+  |          |   "revision": "1.0" |
+  |          | }                   |
+  | engine   | {                   |
+  |          |   "revision": "1.0" |
+  |          | }                   |
+  +----------+---------------------+
 
 You are ready to begin your journey (aka. adventure) with Senlin, now.

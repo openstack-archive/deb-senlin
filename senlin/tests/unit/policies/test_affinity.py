@@ -12,10 +12,13 @@
 
 import mock
 
+from senlin.common import consts
 from senlin.common import context
 from senlin.common import exception
+from senlin.common import scaleutils
 from senlin.db import api as db_api
 from senlin.policies import affinity_policy as ap
+from senlin.policies import base as pb
 from senlin.tests.unit.common import base
 from senlin.tests.unit.common import utils
 
@@ -71,6 +74,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
 
     def test_attach_using_profile_hints(self):
         x_profile = mock.Mock()
+        x_profile.type = 'os.nova.server-1.0'
         x_profile.spec = {
             'scheduler_hints': {
                 'group': 'KONGFOO',
@@ -105,6 +109,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
     def test_attach_with_group_found(self):
         self.spec['properties']['servergroup']['name'] = 'KONGFU'
         x_profile = mock.Mock()
+        x_profile.type = 'os.nova.server-1.0'
         x_profile.spec = {'foo': 'bar'}
         cluster = mock.Mock(id='CLUSTER_ID')
         cluster.rt = {'profile': x_profile}
@@ -136,6 +141,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
         self.spec['properties']['servergroup']['name'] = 'KONGFU'
         x_profile = mock.Mock()
         x_profile.spec = {'foo': 'bar'}
+        x_profile.type = 'os.nova.server-1.0'
         cluster = mock.Mock(id='CLUSTER_ID')
         cluster.rt = {'profile': x_profile}
         x_group = mock.Mock(id='GROUP_ID')
@@ -169,6 +175,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
     def test_attach_with_group_name_not_provided(self):
         x_profile = mock.Mock()
         x_profile.spec = {'foo': 'bar'}
+        x_profile.type = 'os.nova.server-1.0'
         cluster = mock.Mock(id='CLUSTER_ID')
         cluster.rt = {'profile': x_profile}
         x_group = mock.Mock(id='GROUP_ID')
@@ -197,9 +204,22 @@ class TestAffinityPolicy(base.SenlinTestCase):
             'inherited_group': False
         })
 
+    @mock.patch.object(pb.Policy, 'attach')
+    def test_attach_failed_base_return_false(self, mock_attach):
+        cluster = mock.Mock()
+        mock_attach.return_value = (False, 'Something is wrong.')
+
+        policy = ap.AffinityPolicy('test-policy', self.spec)
+
+        res, data = policy.attach(cluster)
+
+        self.assertFalse(res)
+        self.assertEqual('Something is wrong.', data)
+
     def test_attach_failed_finding(self):
         self.spec['properties']['servergroup']['name'] = 'KONGFU'
         x_profile = mock.Mock()
+        x_profile.type = 'os.nova.server-1.0'
         x_profile.spec = {'foo': 'bar'}
         cluster = mock.Mock(id='CLUSTER_ID')
         cluster.rt = {'profile': x_profile}
@@ -223,6 +243,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
     def test_attach_policies_not_match(self):
         self.spec['properties']['servergroup']['name'] = 'KONGFU'
         x_profile = mock.Mock()
+        x_profile.type = 'os.nova.server-1.0'
         x_profile.spec = {'foo': 'bar'}
         cluster = mock.Mock(id='CLUSTER_ID')
         cluster.rt = {'profile': x_profile}
@@ -248,6 +269,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
     def test_attach_failed_creating_server_group(self):
         self.spec['properties']['servergroup']['name'] = 'KONGFU'
         x_profile = mock.Mock()
+        x_profile.type = 'os.nova.server-1.0'
         x_profile.spec = {'foo': 'bar'}
         cluster = mock.Mock(id='CLUSTER_ID')
         cluster.rt = {'profile': x_profile}
@@ -476,9 +498,10 @@ class TestAffinityPolicy(base.SenlinTestCase):
         x_action.store.assert_called_once_with(x_action.context)
 
     @mock.patch.object(db_api, 'cluster_policy_get')
-    def test_pre_op_use_action_input(self, mock_cp):
+    def test_pre_op_use_scaleout_input(self, mock_cp):
         x_action = mock.Mock()
         x_action.data = {}
+        x_action.action = consts.CLUSTER_SCALE_OUT
         x_action.inputs = {'count': 2}
         x_binding = mock.Mock()
         mock_cp.return_value = x_binding
@@ -514,6 +537,101 @@ class TestAffinityPolicy(base.SenlinTestCase):
             },
             x_action.data)
         x_action.store.assert_called_once_with(x_action.context)
+
+    @mock.patch.object(db_api, 'cluster_get')
+    @mock.patch.object(db_api, 'cluster_policy_get')
+    def test_pre_op_use_resize_params(self, mock_cp, mock_cluster):
+        def fake_parse_func(action, cluster):
+            action.data = {
+                'creation': {
+                    'count': 2
+                }
+            }
+
+        x_action = mock.Mock()
+        x_action.data = {}
+        x_action.action = consts.CLUSTER_RESIZE
+        x_action.inputs = {
+            'adjustment_type': consts.EXACT_CAPACITY,
+            'number': 10
+        }
+        x_cluster = mock.Mock()
+        mock_cluster.return_value = x_cluster
+        mock_parse = self.patchobject(scaleutils, 'parse_resize_params',
+                                      side_effect=fake_parse_func)
+
+        x_binding = mock.Mock()
+        mock_cp.return_value = x_binding
+
+        policy_data = {
+            'servergroup_id': 'SERVERGROUP_ID',
+            'inherited_group': False,
+        }
+        policy = ap.AffinityPolicy('test-policy', self.spec)
+        policy.id = 'POLICY_ID'
+        mock_extract = self.patchobject(policy, '_extract_policy_data',
+                                        return_value=policy_data)
+
+        # do it
+        policy.pre_op('CLUSTER_ID', x_action)
+
+        mock_parse.assert_called_once_with(x_action, x_cluster)
+        mock_cluster.assert_called_once_with(x_action.context, 'CLUSTER_ID')
+        mock_cp.assert_called_once_with(x_action.context, 'CLUSTER_ID',
+                                        'POLICY_ID')
+        mock_extract.assert_called_once_with(x_binding.data)
+        self.assertEqual(
+            {
+                'creation': {
+                    'count': 2,
+                },
+                'placement': {
+                    'count': 2,
+                    'placements': [
+                        {
+                            'servergroup': 'SERVERGROUP_ID'
+                        },
+                        {
+                            'servergroup': 'SERVERGROUP_ID'
+                        }
+                    ]
+                }
+            },
+            x_action.data)
+        x_action.store.assert_called_once_with(x_action.context)
+
+    @mock.patch.object(db_api, 'cluster_get')
+    @mock.patch.object(db_api, 'cluster_policy_get')
+    def test_pre_op_resize_shrinking(self, mock_cp, mock_cluster):
+        def fake_parse_func(action, cluster):
+            action.data = {
+                'deletion': {
+                    'count': 2
+                }
+            }
+
+        x_action = mock.Mock()
+        x_action.data = {}
+        x_action.action = consts.CLUSTER_RESIZE
+        x_action.inputs = {
+            'adjustment_type': consts.EXACT_CAPACITY,
+            'number': 10
+        }
+        x_cluster = mock.Mock()
+        mock_cluster.return_value = x_cluster
+        mock_parse = self.patchobject(scaleutils, 'parse_resize_params',
+                                      side_effect=fake_parse_func)
+        policy = ap.AffinityPolicy('test-policy', self.spec)
+        policy.id = 'POLICY_ID'
+        mock_extract = self.patchobject(policy, '_extract_policy_data')
+
+        # do it
+        policy.pre_op('CLUSTER_ID', x_action)
+
+        mock_parse.assert_called_once_with(x_action, x_cluster)
+        mock_cluster.assert_called_once_with(x_action.context, 'CLUSTER_ID')
+        self.assertEqual(0, mock_cp.call_count)
+        self.assertEqual(0, mock_extract.call_count)
 
     @mock.patch.object(db_api, 'cluster_policy_get')
     def test_pre_op_with_zone_name(self, mock_cp):

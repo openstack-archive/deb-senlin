@@ -287,6 +287,9 @@ class ClusterAction(base.Action):
 
             res, reason = self._wait_for_dependents()
             if res == self.RES_OK:
+                self.cluster.desired_capacity -= len(node_ids)
+                self.cluster.store(self.context)
+
                 self.outputs['nodes_removed'] = node_ids
                 for node_id in node_ids:
                     self.cluster.remove_node(node_id)
@@ -387,6 +390,8 @@ class ClusterAction(base.Action):
         if result != self.RES_OK:
             reason = new_reason
         else:
+            self.cluster.desired_capacity += len(nodes)
+            self.cluster.store(self.context)
             nodes_added = [n.id for n in nodes]
             self.outputs['nodes_added'] = nodes_added
             creation = self.data.get('creation', {})
@@ -740,6 +745,11 @@ class ClusterAction(base.Action):
         res, reason = self.cluster.attach_policy(self.context, policy_id,
                                                  inputs)
         result = self.RES_OK if res else self.RES_ERROR
+
+        # Store cluster since its data could have been updated
+        if result == self.RES_OK:
+            self.cluster.store(self.context)
+
         return result, reason
 
     def do_detach_policy(self):
@@ -753,6 +763,11 @@ class ClusterAction(base.Action):
 
         res, reason = self.cluster.detach_policy(self.context, policy_id)
         result = self.RES_OK if res else self.RES_ERROR
+
+        # Store cluster since its data could have been updated
+        if result == self.RES_OK:
+            self.cluster.store(self.context)
+
         return result, reason
 
     def do_update_policy(self):

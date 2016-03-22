@@ -10,6 +10,14 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+"""
+Policy for load-balancing among nodes in a cluster.
+
+NOTE: For full documentation about how the deletion policy works, check:
+http://docs.openstack.org/developer/senlin/developer/policies/
+load_balance_v1.html
+"""
+
 from oslo_context import context as oslo_context
 from oslo_log import log as logging
 
@@ -29,12 +37,13 @@ LOG = logging.getLogger(__name__)
 
 
 class LoadBalancingPolicy(base.Policy):
-    '''Policy for load balancing among members of a cluster.
+    """Policy for load balancing among members of a cluster.
 
-    This policy is expected to be enforced after the member list of a cluster
-    is changed. We need to reload the load-balancer specified (or internally
-    created) when these actions are performed.
-    '''
+    This policy is expected to be enforced before or after the membership of a
+    cluster is changed. We need to refresh the load-balancer associated with
+    the cluster (which could be created by the policy) when these actions are
+    performed.
+    """
     VERSION = '1.0'
 
     PRIORITY = 500
@@ -293,14 +302,17 @@ class LoadBalancingPolicy(base.Policy):
             if member_id is None:
                 # When failed in adding member, remove all lb resources that
                 # were created and return the failure reason.
-                # TODO(Yanyan Hu): Maybe we should tolerate member adding
-                # failure and allow policy attaching to succeed without
-                # all nodes being added into lb pool?
+                # TODO(anyone): May need to "roll-back" changes caused by any
+                # successful member_add() calls.
                 lb_driver.lb_delete(**data)
                 return False, 'Failed in adding node into lb pool'
 
             node.data.update({'lb_member': member_id})
             node.store(oslo_context.get_current())
+
+        cluster_data_lb = cluster.data.get('loadbalancers', {})
+        cluster_data_lb[self.id] = {'vip_address': data.pop('vip_address')}
+        cluster.data['loadbalancers'] = cluster_data_lb
 
         policy_data = self._build_policy_data(data)
 
@@ -337,14 +349,22 @@ class LoadBalancingPolicy(base.Policy):
                 node.data.pop('lb_member')
                 node.store(oslo_context.get_current())
 
+        lb_data = cluster.data.get('loadbalancers', {})
+        if lb_data and isinstance(lb_data, dict):
+            lb_data.pop(self.id, None)
+            if lb_data:
+                cluster.data['loadbalancers'] = lb_data
+            else:
+                cluster.data.pop('loadbalancers')
+
         return True, reason
 
     def _get_delete_candidates(self, cluster_id, action):
         deletion = action.data.get('deletion', None)
         # No deletion field in action.data which means no scaling
         # policy or deletion policy is attached.
+        candidates = None
         if deletion is None:
-            candidates = None
             if action.action == consts.CLUSTER_DEL_NODES:
                 # Get candidates from action.input
                 candidates = action.inputs.get('candidates', [])
@@ -365,11 +385,19 @@ class LoadBalancingPolicy(base.Policy):
 
         # Still no candidates available, pick count of nodes randomly
         if candidates is None:
+            if count == 0:
+                return []
             nodes = db_api.node_get_all_by_cluster(action.context,
                                                    cluster_id=cluster_id)
             if count > len(nodes):
                 count = len(nodes)
             candidates = scaleutils.nodes_by_random(nodes, count)
+            deletion_data = action.data.get('deletion', {})
+            deletion_data.update({
+                'count': len(candidates),
+                'candidates': candidates
+            })
+            action.data.update({'deletion': deletion_data})
 
         return candidates
 
@@ -413,10 +441,6 @@ class LoadBalancingPolicy(base.Policy):
                 action.data['reason'] = _('Failed in removing deleted '
                                           'node(s) from lb pool.')
                 return
-
-        deletion = action.data.get('deletion', {})
-        deletion.update({'count': len(candidates), 'candidates': candidates})
-        action.data.update({'deletion': deletion})
 
         return
 

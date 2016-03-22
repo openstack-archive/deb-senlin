@@ -13,31 +13,8 @@
 """
 Policy for placing nodes based on Nova server groups.
 
-NOTE: How placement policy works
-Input:
-  cluster: cluster whose nodes are to be manipulated.
-  action.data['placement']:
-    - count: number of nodes to create; it can be decision from a scaling
-             policy. If no scaling policy is in effect, the count will be
-             assumed to be 1.
-Output:
-  stored in action.data: A dictionary containing scheduling decisions made.
-  {
-    'status': 'OK',
-    'placement': {
-      'count': 2,
-      'placements': [
-        {
-          'zone': 'nova:openstack_drs',
-          'servergroup': 'SERVER_GROUP_ID',
-        },
-        {
-          'zone': 'nova:openstack_drs',
-          'servergroup': 'SERVER_GROUP_ID',
-        },
-      ]
-    }
-  }
+NOTE:  For full documentation about how the affinity policy works, check:
+http://docs.openstack.org/developer/senlin/developer/policies/affinity_v1.html
 """
 
 import re
@@ -50,6 +27,7 @@ from senlin.common import context
 from senlin.common import exception
 from senlin.common.i18n import _
 from senlin.common.i18n import _LE
+from senlin.common import scaleutils as su
 from senlin.common import schema
 from senlin.common import utils
 from senlin.db import api as db_api
@@ -71,9 +49,9 @@ class AffinityPolicy(base.Policy):
 
     PRIORITY = 300
 
-    # TODO(Xinhui Li): support resize
     TARGET = [
         ('BEFORE', consts.CLUSTER_SCALE_OUT),
+        ('BEFORE', consts.CLUSTER_RESIZE),
     ]
 
     PROFILE_TYPE = [
@@ -149,6 +127,10 @@ class AffinityPolicy(base.Policy):
         :returns: When the operation was successful, returns a tuple (True,
                   message); otherwise, return a tuple (False, error).
         """
+        res, data = super(AffinityPolicy, self).attach(cluster)
+        if res is False:
+            return False, data
+
         data = {'inherited_group': False}
         nc = self.nova(cluster)
         group = self.properties.get(self.SERVER_GROUP)
@@ -265,8 +247,14 @@ class AffinityPolicy(base.Policy):
         pd = action.data.get('creation', None)
         if pd is not None:
             count = pd.get('count', 1)
-        else:
+        elif action.action == consts.CLUSTER_SCALE_OUT:
             count = action.inputs.get('count', 1)
+        else:  # CLUSTER_RESIZE
+            db_cluster = db_api.cluster_get(action.context, cluster_id)
+            su.parse_resize_params(action, db_cluster)
+            if 'creation' not in action.data:
+                return
+            count = action.data['creation']['count']
 
         cp = db_api.cluster_policy_get(action.context, cluster_id, self.id)
         policy_data = self._extract_policy_data(cp.data)
