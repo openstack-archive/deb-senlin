@@ -1,6 +1,7 @@
 senlin (1.0.0~rc1-1) experimental; urgency=medium
 
   * New upstream release.
+  * Standards-Version: 3.9.7 (no change).
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 22 Mar 2016 15:58:34 +0100
 
