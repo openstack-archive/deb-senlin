@@ -1,3 +1,9 @@
+senlin (1.0.0~rc1-3) experimental; urgency=medium
+
+  * Wrong template names nova->senlin.
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 29 Mar 2016 14:04:19 +0000
+
 senlin (1.0.0~rc1-2) experimental; urgency=medium
 
   * Do not use Keystone admin auth token to register API endpoints.
