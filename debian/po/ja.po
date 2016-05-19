@@ -2,32 +2,33 @@
 # Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the PACKAGE package.
 # victory <victory.deb@gmail.com>, 2012.
-# 
+# Takuma Yamada <tyamada@takumayamada.com>, 2016.
+#
 msgid ""
 msgstr ""
 "Project-Id-Version: senlin\n"
 "Report-Msgid-Bugs-To: senlin@packages.debian.org\n"
 "POT-Creation-Date: 2016-01-23 13:55+0000\n"
-"PO-Revision-Date: 2012-11-10 23:28+0900\n"
-"Last-Translator: victory <victory.deb@gmail.com>\n"
+"PO-Revision-Date: 2016-04-07 13:03+0900\n"
+"Last-Translator: Takuma Yamada <tyamada@takumayamada.com>\n"
 "Language-Team: Japanese <debian-japanese@lists.debian.org>\n"
 "Language: ja\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Generator: Gtranslator 2.91.6\n"
 
 #. Type: boolean
 #. Description
 #: ../senlin-common.templates:2001
-#, fuzzy
 #| msgid "Set up a database for senlin?"
 msgid "Set up a database for Senlin?"
-msgstr "senlin 用のデータベースを用意しますか?"
+msgstr "senlin 用のデータベースを設定しますか?"
 
 #. Type: boolean
 #. Description
 #: ../senlin-common.templates:2001
-#, fuzzy
 #| msgid ""
 #| "No database has been set up for senlin-registry or senlin-api to use. "
 #| "Before continuing, you should make sure you have:"
@@ -35,13 +36,12 @@ msgid ""
 "No database has been set up for Senlin to use. Before continuing, you should "
 "make sure you have the following information:"
 msgstr ""
-"senlin-registry または senlin-api で利用するデータベースが用意されていませ"
-"ん。続ける前に以下の情報が揃っていることを確認してください:"
+"senlin で使用するために設定されたデータベースがありません。続行する前に、以下"
+"の情報が揃っていることを確認してください:"
 
 #. Type: boolean
 #. Description
 #: ../senlin-common.templates:2001
-#, fuzzy
 #| msgid ""
 #| " - the server host name (that server must allow TCP connections from "
 #| "this\n"
@@ -55,15 +55,14 @@ msgid ""
 "   machine);\n"
 " * a username and password to access the database."
 msgstr ""
-" - サーバのホスト名 (このサーバはこのマシンからの\n"
-"   TCP 接続を許可しなければなりません)\n"
-" - データベースにアクセスするためのユーザ名とパスワード\n"
-" - 使いたいデータベースの種類"
+" * 使用するデータベースの種類\n"
+" * データベースサーバのホスト名 (そのサーバは、このマシンからの TCP 接続を\n"
+"   許可する必要があります)\n"
+" * データベースにアクセスするためのユーザ名とパスワード"
 
 #. Type: boolean
 #. Description
 #: ../senlin-common.templates:2001
-#, fuzzy
 #| msgid ""
 #| "If some of these requirements are missing, reject this option and run "
 #| "with regular sqlite support."
@@ -71,13 +70,12 @@ msgid ""
 "If some of these requirements are missing, do not choose this option and run "
 "with regular SQLite support."
 msgstr ""
-"必要な情報が欠けている場合このオプションを却下して標準の SQLite を利用しま"
-"す。"
+"これらの要件が欠落している場合は、このオプションを選択しないでください。そし"
+"て、標準 SQLite サポートで実行してください。"
 
 #. Type: boolean
 #. Description
 #: ../senlin-common.templates:2001
-#, fuzzy
 #| msgid ""
 #| "You can change this setting later on by running 'dpkg-reconfigure -plow "
 #| "senlin-common'."
@@ -85,13 +83,12 @@ msgid ""
 "You can change this setting later on by running \"dpkg-reconfigure -plow "
 "senlin-common\"."
 msgstr ""
-"この設定は後で「dpkg-reconfigure -plow senlin-common」を実行することにより変"
+"この設定は、後で \"dpkg-reconfigure -plow senlin-common\" を実行することで変"
 "更できます。"
 
 #. Type: string
 #. Description
 #: ../senlin-common.templates:3001
-#, fuzzy
 #| msgid "Auth server hostname:"
 msgid "Authentication server hostname:"
 msgstr "認証サーバのホスト名:"
@@ -99,7 +96,6 @@ msgstr "認証サーバのホスト名:"
 #. Type: string
 #. Description
 #: ../senlin-common.templates:3001
-#, fuzzy
 #| msgid ""
 #| "Please specify the URL of your Senlin authentication server. Typically "
 #| "this is also the URL of your OpenStack Identity Service (Keystone)."
@@ -107,8 +103,8 @@ msgid ""
 "Please specify the hostname of the authentication server. Typically this is "
 "also the hostname of the OpenStack Identity Service (Keystone)."
 msgstr ""
-"Senlin 認証サーバの URL を指定してください。これは通常 OpenStack Identity "
-"Service (Keystone) の URL にもなります。"
+"認証サーバのホスト名を指定してください。通常これは OpenStack Identity "
+"Service (Keystone) のホスト名と同じです。"
 
 #. Type: string
 #. Description
@@ -120,10 +116,9 @@ msgstr ""
 #. or keep it aside with your translation. Example for French:
 #. proprietaire ("tenant")
 #: ../senlin-common.templates:4001
-#, fuzzy
 #| msgid "Auth server tenant name:"
 msgid "Authentication server tenant name:"
-msgstr "認証サーバの管理用アカウント (tenant) 名"
+msgstr "認証サーバのテナント (tenant) 名:"
 
 #. Type: string
 #. Description
@@ -136,12 +131,11 @@ msgstr "認証サーバの管理用アカウント (tenant) 名"
 #. proprietaire ("tenant")
 #: ../senlin-common.templates:4001
 msgid "Please specify the authentication server tenant name."
-msgstr ""
+msgstr "認証サーバのテナント (tenant) 名を指定してください。"
 
 #. Type: string
 #. Description
 #: ../senlin-common.templates:5001
-#, fuzzy
 #| msgid "Auth server username:"
 msgid "Authentication server username:"
 msgstr "認証サーバのユーザ名:"
@@ -150,12 +144,11 @@ msgstr "認証サーバのユーザ名:"
 #. Description
 #: ../senlin-common.templates:5001
 msgid "Please specify the username to use with the authentication server."
-msgstr ""
+msgstr "認証サーバで使用するユーザ名を指定してください。"
 
 #. Type: password
 #. Description
 #: ../senlin-common.templates:6001
-#, fuzzy
 #| msgid "Auth server password:"
 msgid "Authentication server password:"
 msgstr "認証サーバのパスワード:"
@@ -164,13 +157,13 @@ msgstr "認証サーバのパスワード:"
 #. Description
 #: ../senlin-common.templates:6001
 msgid "Please specify the password to use with the authentication server."
-msgstr ""
+msgstr "認証サーバで使用するパスワードを指定してください"
 
 #. Type: string
 #. Description
 #: ../senlin-common.templates:7001
 msgid "IP address of your RabbitMQ host:"
-msgstr ""
+msgstr "RabbitMQ ホストの IP アドレス:"
 
 #. Type: string
 #. Description
@@ -184,36 +177,38 @@ msgid ""
 "In order to interoperate with other components of OpenStack, this package "
 "needs to connect to a central RabbitMQ server."
 msgstr ""
+"OpenStack のほかのコンポーネントと相互運用するためには、このパッケージは中央 "
+"RabbitMQ サーバに接続する必要があります。"
 
 #. Type: string
 #. Description
 #: ../senlin-common.templates:7001
 msgid "Please specify the IP address of that server."
-msgstr ""
+msgstr "そのサーバの IP アドレスを指定してください。"
 
 #. Type: string
 #. Description
 #: ../senlin-common.templates:8001
 msgid "Username for connection to the RabbitMQ server:"
-msgstr ""
+msgstr "RabbitMQ サーバ接続用のユーザ名:"
 
 #. Type: string
 #. Description
 #: ../senlin-common.templates:8001
 msgid "Please specify the username used to connect to the RabbitMQ server."
-msgstr ""
+msgstr "RabbitMQ サーバの接続に使用するユーザ名を指定してください"
 
 #. Type: password
 #. Description
 #: ../senlin-common.templates:9001
 msgid "Password for connection to the RabbitMQ server:"
-msgstr ""
+msgstr "RabbitMQ サーバ接続用のパスワード:"
 
 #. Type: password
 #. Description
 #: ../senlin-common.templates:9001
 msgid "Please specify the password used to connect to the RabbitMQ server."
-msgstr ""
+msgstr "RabbitMQ サーバの接続に使用するパスワードを指定してください。"
 
 #~ msgid "Pipeline flavor:"
 #~ msgstr "パイプラインの種類:"

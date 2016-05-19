@@ -2,14 +2,14 @@
 # Copyright (C) 2012 THE PACKAGE'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the senlin package.
 # Jeroen Schot <schot@a-eskwadraat.nl>, 2012.
-# Frans Spiesschaert <Frans.Spiesschaert@yucom.be>, 2014.
+# Frans Spiesschaert <Frans.Spiesschaert@yucom.be>, 2014, 2016.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: senlin 2012.1~e3-4\n"
+"Project-Id-Version: senlin_1.0.0-1\n"
 "Report-Msgid-Bugs-To: senlin@packages.debian.org\n"
 "POT-Creation-Date: 2016-01-23 13:55+0000\n"
-"PO-Revision-Date: 2014-09-26 22:55+0200\n"
+"PO-Revision-Date: 2016-04-25 11:12+0200\n"
 "Last-Translator: Frans Spiesschaert <Frans.Spiesschaert@yucom.be>\n"
 "Language-Team: Debian Dutch l10n Team <debian-l10n-dutch@lists.debian.org>\n"
 "Language: nl\n"
@@ -17,17 +17,17 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Gtranslator 2.91.6\n"
 
 #. Type: boolean
 #. Description
 #: ../senlin-common.templates:2001
 msgid "Set up a database for Senlin?"
-msgstr "Een database voor Senlin opzetten?"
+msgstr "Een database opzetten voor Senlin?"
 
 #. Type: boolean
 #. Description
 #: ../senlin-common.templates:2001
-#, fuzzy
 #| msgid ""
 #| "No database has been set up for senlin-registry or senlin-api to use. "
 #| "Before continuing, you should make sure you have the following "
@@ -36,8 +36,8 @@ msgid ""
 "No database has been set up for Senlin to use. Before continuing, you should "
 "make sure you have the following information:"
 msgstr ""
-"Er werd geen database opgezet voor het register van Senlin noch voor de API "
-"van Senlin. Voor u doorgaat moet u beschikken over de volgende informatie:"
+"Er werd geen database opgezet om door Senlin gebruikt te worden. Voor u "
+"doorgaat moet u beschikken over de volgende informatie:"
 
 #. Type: boolean
 #. Description
@@ -49,10 +49,11 @@ msgid ""
 "   machine);\n"
 " * a username and password to access the database."
 msgstr ""
-" * het type database dat u wenst te gebruiken;\n"
-" * de computernaam van de databeseserver (die server moet\n"
-"   TCP-verbindingen vanaf deze computer accepteren);\n"
-" * een gebruikersnaam en wachtwoord voor toegang tot de database."
+" * het soort database dat u wilt gebruiken;\n"
+" * de computernaam van de databaseserver (die server moet\n"
+"   TCP-verbindingen vanaf deze computer toestaan);\n"
+" * een gebruikersnaam en een wachtwoord om toegang te krijgen tot de "
+"database."
 
 #. Type: boolean
 #. Description
@@ -71,8 +72,8 @@ msgid ""
 "You can change this setting later on by running \"dpkg-reconfigure -plow "
 "senlin-common\"."
 msgstr ""
-"U kunt deze instelling later wijzigen met het commando \"dpkg-reconfigure -"
-"plow senlin-common\"."
+"U kunt deze instelling later wijzigen door het uitvoeren van \"dpkg-"
+"reconfigure -plow senlin-common\"."
 
 #. Type: string
 #. Description
@@ -83,7 +84,6 @@ msgstr "Computernaam van de authenticatieserver:"
 #. Type: string
 #. Description
 #: ../senlin-common.templates:3001
-#, fuzzy
 #| msgid ""
 #| "Please specify the hostname of the authentication server for Senlin. "
 #| "Typically this is also the hostname of the OpenStack Identity Service "
@@ -92,8 +92,8 @@ msgid ""
 "Please specify the hostname of the authentication server. Typically this is "
 "also the hostname of the OpenStack Identity Service (Keystone)."
 msgstr ""
-"Geef de computernaam van de authenticatieserver voor Senlin. Meestal is dit "
-"ook de computernaam van de OpenStack identiteitsserver (Keystone)."
+"Geef de computernaam van de authenticatieserver op. Meestal is dit ook de "
+"computernaam van de OpenStack Identiteitsdienst (Keystone)."
 
 #. Type: string
 #. Description
@@ -106,7 +106,7 @@ msgstr ""
 #. proprietaire ("tenant")
 #: ../senlin-common.templates:4001
 msgid "Authentication server tenant name:"
-msgstr "Naam van de clientruimte (tenant) op de authenticatieserver:"
+msgstr "Naam van de cliëntruimte (tenant) op de authenticatieserver:"
 
 #. Type: string
 #. Description
@@ -120,32 +120,33 @@ msgstr "Naam van de clientruimte (tenant) op de authenticatieserver:"
 #: ../senlin-common.templates:4001
 msgid "Please specify the authentication server tenant name."
 msgstr ""
-"Gelieve de naam te vermelden van de clientruimte (tenant) op de "
-"authenticatieserver"
+"Geef de naam op van de cliëntruimte (tenant) op de authenticatieserver."
 
 #. Type: string
 #. Description
 #: ../senlin-common.templates:5001
 msgid "Authentication server username:"
-msgstr "Gebruikersnaam voor de authenticatieserver:"
+msgstr "Gebruikersnaam op de authenticatieserver:"
 
 #. Type: string
 #. Description
 #: ../senlin-common.templates:5001
 msgid "Please specify the username to use with the authentication server."
-msgstr "Geef de gebruikersnaam op voor de authenticatieserver."
+msgstr ""
+"Geef de gebruikersnaam op die op de authenticatieserver gebruikt moet worden."
 
 #. Type: password
 #. Description
 #: ../senlin-common.templates:6001
 msgid "Authentication server password:"
-msgstr "Wachtwoord voor de authenticatieserver:"
+msgstr "Wachtwoord op de authenticatieserver:"
 
 #. Type: password
 #. Description
 #: ../senlin-common.templates:6001
 msgid "Please specify the password to use with the authentication server."
-msgstr "Geef het wachtwoord op voor de authenticatieserver."
+msgstr ""
+"Geef het wachtwoord op dat op de authenticatieserver gebruikt moet worden."
 
 #. Type: string
 #. Description
@@ -165,14 +166,14 @@ msgid ""
 "In order to interoperate with other components of OpenStack, this package "
 "needs to connect to a central RabbitMQ server."
 msgstr ""
-"Om te kunnen samenwerken met andere componenten van OpenStack, moet dit "
-"pakket verbinding kunnen maken met een centrale RabbitMQ-server."
+"Om met andere componenten van OpenStack samen te werken, moet dit pakket een "
+"verbinding maken met een centrale RabbitMQ-server."
 
 #. Type: string
 #. Description
 #: ../senlin-common.templates:7001
 msgid "Please specify the IP address of that server."
-msgstr "Geef heet IP-adres op van die server."
+msgstr "Geef het IP-adres op van die server."
 
 #. Type: string
 #. Description
@@ -185,8 +186,8 @@ msgstr "Gebruikersnaam voor de verbinding met de RabbitMQ-server:"
 #: ../senlin-common.templates:8001
 msgid "Please specify the username used to connect to the RabbitMQ server."
 msgstr ""
-"Geef de gebruikersnaam op die u nodig heeft om verbinding te maken met de "
-"RabbitMQ-server."
+"Geef de gebruikersnaam op waarmee verbinding gemaakt wordt met de RabbitMQ-"
+"server."
 
 #. Type: password
 #. Description
@@ -199,8 +200,8 @@ msgstr "Wachtwoord voor de verbinding met de RabbitMQ-server:"
 #: ../senlin-common.templates:9001
 msgid "Please specify the password used to connect to the RabbitMQ server."
 msgstr ""
-"Gelieve het wachtwoord te geven dat u nodig heeft om verbinding te maken met "
-"de RabbitMQ-server."
+"Geef het wachtwoord op dat gebruikt wordt om verbinding te maken met de "
+"RabbitMQ-server."
 
 #~ msgid "keystone"
 #~ msgstr "keystone"
