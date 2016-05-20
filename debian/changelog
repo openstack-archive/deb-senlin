@@ -1,14 +1,12 @@
-senlin (1.0.0-2) UNRELEASED; urgency=medium
+senlin (1.0.0-2) unstable; urgency=medium
 
   [ Ondřej Nový ]
   * Standards-Version is 3.9.8 now (no change)
+  * d/copyright: Changed source URL to https protocol
 
   [ Thomas Goirand ]
   * Updated Japanese debconf templates (Closes: #820758).
   * Updated Dutch debconf templates (Closes: #823440).
-
-  [ Ondřej Nový ]
-  * d/copyright: Changed source URL to https protocol
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 19 May 2016 10:45:45 +0200
 
