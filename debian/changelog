@@ -2,6 +2,7 @@ senlin (2.0.0~b1-1) experimental; urgency=medium
 
   * New upstream release.
   * Fixed (build-)depends for this release.
+  * Fix OS_TEST_PATH=./senlin/tests/unit when running unit tests.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 13 Jun 2016 15:36:59 +0200
 
