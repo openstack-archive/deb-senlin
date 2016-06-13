@@ -18,8 +18,9 @@ from oslo_log import log as logging
 from oslo_service import threadgroup
 
 from senlin.common import context
-from senlin.db import api as db_api
+from senlin.common.i18n import _
 from senlin.engine.actions import base as action_mod
+from senlin.objects import action as ao
 
 LOG = logging.getLogger(__name__)
 
@@ -61,35 +62,59 @@ class ThreadGroupManager(object):
         return self.group.add_thread(func, *args, **kwargs)
 
     def start_action(self, worker_id, action_id=None):
-        '''Run the given action in a sub-thread.
+        '''Run action(s) in sub-thread(s).
 
-        Release the action lock when the thread finishes?
-
-        :param workder_id: ID of the worker thread; we fake workers using
-                           senlin engines at the moment.
-        :param action_id: ID of the action to be executed. None means the
-                          1st ready action will be scheduled to run.
+        :param worker_id: ID of the worker thread; we fake workers using
+                          senlin engines at the moment.
+        :param action_id: ID of the action to be executed. None means all
+                          ready actions will be acquired and scheduled to run.
         '''
+        def launch(action_id):
+            '''Launch a sub-thread to run given action.'''
+            th = self.start(action_mod.ActionProc, self.db_session, action_id)
+            self.workers[action_id] = th
+            th.link(release, action_id)
+            return th
+
         def release(thread, action_id):
             '''Callback function that will be passed to GreenThread.link().'''
             # Remove action thread from thread list
             self.workers.pop(action_id)
 
-        timestamp = wallclock()
+        actions_launched = 0
         if action_id is not None:
-            action = db_api.action_acquire(self.db_session, action_id,
-                                           worker_id, timestamp)
-        else:
-            action = db_api.action_acquire_1st_ready(self.db_session,
-                                                     worker_id,
-                                                     timestamp)
-        if not action:
-            return
+            timestamp = wallclock()
+            action = ao.Action.acquire(self.db_session, action_id, worker_id,
+                                       timestamp)
+            if action:
+                launch(action.id)
+                actions_launched += 1
 
-        th = self.start(action_mod.ActionProc, self.db_session, action.id)
-        self.workers[action.id] = th
-        th.link(release, action.id)
-        return th
+        batch_size = cfg.CONF.max_actions_per_batch
+        batch_interval = cfg.CONF.batch_interval
+        while True:
+            timestamp = wallclock()
+            action = ao.Action.acquire_1st_ready(self.db_session, worker_id,
+                                                 timestamp)
+            if action:
+                if batch_size > 0 and 'NODE' in action.action:
+                    if actions_launched < batch_size:
+                        launch(action.id)
+                        actions_launched += 1
+                    else:
+                        msg = _('Engine %(id)s has launched %(num)s node '
+                                'actions consecutively, stop scheduling '
+                                'node action for %(interval)s second...'
+                                ) % {'id': worker_id, 'num': batch_size,
+                                     'interval': batch_interval}
+                        LOG.debug(msg)
+                        sleep(batch_interval)
+                        launch(action.id)
+                        actions_launched = 1
+                else:
+                    launch(action.id)
+            else:
+                break
 
     def cancel_action(self, action_id):
         '''Cancel an action execution progress.'''

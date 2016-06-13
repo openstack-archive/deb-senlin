@@ -11,9 +11,7 @@
 # under the License.
 
 import copy
-import datetime
 import functools
-import uuid
 
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -33,16 +31,25 @@ from senlin.common import messaging as rpc_messaging
 from senlin.common import scaleutils as su
 from senlin.common import schema
 from senlin.common import utils
-from senlin.db import api as db_api
 from senlin.engine.actions import base as action_mod
 from senlin.engine import cluster as cluster_mod
-from senlin.engine import cluster_policy
+from senlin.engine import cluster_policy as cpm
 from senlin.engine import dispatcher
 from senlin.engine import environment
 from senlin.engine import health_manager
 from senlin.engine import node as node_mod
 from senlin.engine import receiver as receiver_mod
 from senlin.engine import scheduler
+from senlin.objects import action as action_obj
+from senlin.objects import cluster as cluster_obj
+from senlin.objects import cluster_policy as cp_obj
+from senlin.objects import credential as cred_obj
+from senlin.objects import event as event_obj
+from senlin.objects import node as node_obj
+from senlin.objects import policy as policy_obj
+from senlin.objects import profile as profile_obj
+from senlin.objects import receiver as receiver_obj
+from senlin.objects import service as service_obj
 from senlin.policies import base as policy_base
 from senlin.profiles import base as profile_base
 
@@ -96,7 +103,7 @@ class EngineService(service.Service):
         self.TG = scheduler.ThreadGroupManager()
 
     def start(self):
-        self.engine_id = str(uuid.uuid4())
+        self.engine_id = uuidutils.generate_uuid()
         self.init_tgm()
 
         # create a dispatcher RPC service for this engine.
@@ -153,31 +160,27 @@ class EngineService(service.Service):
     def service_manage_report(self):
         ctx = senlin_context.get_admin_context()
         try:
-            svc = db_api.service_update(ctx, self.engine_id)
+            svc = service_obj.Service.update(ctx, self.engine_id)
             # if svc is None, means it's not created.
             if svc is None:
-                params = dict(host=self.host,
-                              binary='senlin-engine',
-                              service_id=self.engine_id,
-                              topic=self.topic)
-                db_api.service_create(ctx, **params)
+                service_obj.Service.create(ctx, self.engine_id, self.host,
+                                           'senlin-engine', self.topic)
         except Exception as ex:
             LOG.error(_LE('Service %(service_id)s update failed: %(error)s'),
                       {'service_id': self.engine_id, 'error': ex})
 
     def service_manage_cleanup(self):
         ctx = senlin_context.get_admin_context()
-        last_updated_window = (2 * cfg.CONF.periodic_interval)
-        time_line = timeutils.utcnow() - datetime.timedelta(
-            seconds=last_updated_window)
-        svcs = db_api.service_get_all(ctx)
+        time_window = (2 * cfg.CONF.periodic_interval)
+        svcs = service_obj.Service.get_all(ctx)
         for svc in svcs:
             if svc['id'] == self.engine_id:
                 continue
-            if svc['updated_at'] < time_line:
+            if timeutils.is_older_than(svc['updated_at'], time_window):
+                # < time_line:
                 # hasn't been updated, assuming it's died.
                 LOG.info(_LI('Service %s was aborted'), svc['id'])
-                db_api.service_delete(ctx, svc['id'])
+                service_obj.Service.delete(ctx, svc['id'])
 
     @request_context
     def credential_create(self, context, cred, attrs=None):
@@ -202,7 +205,7 @@ class EngineService(service.Service):
                 }
             }
         }
-        db_api.cred_create(context, values)
+        cred_obj.Credential.update_or_create(context, values)
         return {'cred': cred}
 
     @request_context
@@ -218,7 +221,7 @@ class EngineService(service.Service):
         :return: A dictionary containing the persistent credential, or None
             if no matching credential is found.
         """
-        res = db_api.cred_get(context, context.user, context.project)
+        res = cred_obj.Credential.get(context, context.user, context.project)
         if res is None:
             return None
         return res.cred.get('openstack', None)
@@ -236,8 +239,8 @@ class EngineService(service.Service):
                            the credential.
         :return: A dictionary containing the updated credential.
         """
-        db_api.cred_update(context, context.user, context.project,
-                           {'cred': {'openstack': {'trust': cred}}})
+        cred_obj.Credential.update(context, context.user, context.project,
+                                   {'cred': {'openstack': {'trust': cred}}})
         return {'cred': cred}
 
     @request_context
@@ -281,16 +284,16 @@ class EngineService(service.Service):
                  no matching object is found.
         """
         if uuidutils.is_uuid_like(identity):
-            profile = db_api.profile_get(context, identity,
-                                         project_safe=project_safe)
+            profile = profile_obj.Profile.get(context, identity,
+                                              project_safe=project_safe)
             if not profile:
-                profile = db_api.profile_get_by_name(context, identity,
-                                                     project_safe=project_safe)
+                profile = profile_obj.Profile.get_by_name(
+                    context, identity, project_safe=project_safe)
         else:
-            profile = db_api.profile_get_by_name(context, identity,
-                                                 project_safe=project_safe)
+            profile = profile_obj.Profile.get_by_name(
+                context, identity, project_safe=project_safe)
             if not profile:
-                profile = db_api.profile_get_by_short_id(
+                profile = profile_obj.Profile.get_by_short_id(
                     context, identity, project_safe=project_safe)
 
         if not profile:
@@ -342,7 +345,7 @@ class EngineService(service.Service):
                  created.
         """
         if cfg.CONF.name_unique:
-            if db_api.profile_get_by_name(context, name):
+            if profile_obj.Profile.get_by_name(context, name):
                 msg = _("A profile named '%(name)s' already exists."
                         ) % {"name": name}
                 raise exception.BadRequest(msg=msg)
@@ -480,16 +483,16 @@ class EngineService(service.Service):
                  no matching object is found.
         """
         if uuidutils.is_uuid_like(identity):
-            policy = db_api.policy_get(context, identity,
-                                       project_safe=project_safe)
+            policy = policy_obj.Policy.get(context, identity,
+                                           project_safe=project_safe)
             if not policy:
-                policy = db_api.policy_get_by_name(context, identity,
-                                                   project_safe=project_safe)
+                policy = policy_obj.Policy.get_by_name(
+                    context, identity, project_safe=project_safe)
         else:
-            policy = db_api.policy_get_by_name(context, identity,
-                                               project_safe=project_safe)
+            policy = policy_obj.Policy.get_by_name(context, identity,
+                                                   project_safe=project_safe)
             if not policy:
-                policy = db_api.policy_get_by_short_id(
+                policy = policy_obj.Policy.get_by_short_id(
                     context, identity, project_safe=project_safe)
 
         if not policy:
@@ -537,7 +540,7 @@ class EngineService(service.Service):
                  created.
         """
         if cfg.CONF.name_unique:
-            if db_api.policy_get_by_name(context, name):
+            if policy_obj.Policy.get_by_name(context, name):
                 msg = _("A policy named '%(name)s' already exists."
                         ) % {"name": name}
                 raise exception.BadRequest(msg=msg)
@@ -645,17 +648,17 @@ class EngineService(service.Service):
         """
 
         if uuidutils.is_uuid_like(identity):
-            cluster = db_api.cluster_get(context, identity,
-                                         project_safe=project_safe)
+            cluster = cluster_obj.Cluster.get(context, identity,
+                                              project_safe=project_safe)
             if not cluster:
-                cluster = db_api.cluster_get_by_name(context, identity,
-                                                     project_safe=project_safe)
+                cluster = cluster_obj.Cluster.get_by_name(
+                    context, identity, project_safe=project_safe)
         else:
-            cluster = db_api.cluster_get_by_name(context, identity,
-                                                 project_safe=project_safe)
+            cluster = cluster_obj.Cluster.get_by_name(
+                context, identity, project_safe=project_safe)
             # maybe it is a short form of UUID
             if not cluster:
-                cluster = db_api.cluster_get_by_short_id(
+                cluster = cluster_obj.Cluster.get_by_short_id(
                     context, identity, project_safe=project_safe)
 
         if not cluster:
@@ -702,7 +705,7 @@ class EngineService(service.Service):
         :return: A dictionary containing the details about a cluster.
         """
         db_cluster = self.cluster_find(context, identity)
-        cluster = cluster_mod.Cluster.load(context, cluster=db_cluster)
+        cluster = cluster_mod.Cluster.load(context, dbcluster=db_cluster)
         return cluster.to_dict()
 
     def check_cluster_quota(self, context):
@@ -712,7 +715,7 @@ class EngineService(service.Service):
         :return: None if cluster creation is okay, or an exception of type
                  `Forbbiden` if number of clusters reaches the maximum.
         """
-        existing = db_api.cluster_count_all(context)
+        existing = cluster_obj.Cluster.count_all(context)
         maximum = cfg.CONF.max_clusters_per_project
         if existing >= maximum:
             raise exception.Forbidden()
@@ -739,7 +742,7 @@ class EngineService(service.Service):
         self.check_cluster_quota(context)
 
         if cfg.CONF.name_unique:
-            if db_api.cluster_get_by_name(context, name):
+            if cluster_obj.Cluster.get_by_name(context, name):
                 msg = _("The cluster (%(name)s) already exists."
                         ) % {"name": name}
                 raise exception.BadRequest(msg=msg)
@@ -787,7 +790,7 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, cluster.id,
                                              consts.CLUSTER_CREATE, **kwargs)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Cluster create action queued: %s."), action_id)
 
         result = cluster.to_dict()
@@ -813,7 +816,7 @@ class EngineService(service.Service):
 
         # Get the database representation of the existing cluster
         db_cluster = self.cluster_find(context, identity)
-        cluster = cluster_mod.Cluster.load(context, cluster=db_cluster)
+        cluster = cluster_mod.Cluster.load(context, dbcluster=db_cluster)
         if cluster.status == cluster.ERROR:
             msg = _('Updating a cluster in error state')
             LOG.error(msg)
@@ -856,7 +859,7 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, cluster.id,
                                              consts.CLUSTER_UPDATE, **kwargs)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Cluster update action queued: %s."), action_id)
 
         resp = cluster.to_dict()
@@ -875,20 +878,22 @@ class EngineService(service.Service):
 
         db_cluster = self.cluster_find(context, identity)
 
-        policies = db_api.cluster_policy_get_all(context, db_cluster.id)
+        policies = cp_obj.ClusterPolicy.get_all(context, db_cluster.id)
         if len(policies) > 0:
             msg = _('Cluster %(id)s cannot be deleted without having all '
                     'policies detached.') % {'id': identity}
             LOG.error(msg)
-            raise exception.BadRequest(msg=msg)
+            reason = _("there is still policy(s) attached to it.")
+            raise exception.ClusterBusy(cluster=db_cluster.id, reason=reason)
 
-        receivers = db_api.receiver_get_all(context, filters={'cluster_id':
-                                            db_cluster.id})
+        receivers = receiver_obj.Receiver.get_all(
+            context, filters={'cluster_id': db_cluster.id})
         if len(receivers) > 0:
             msg = _('Cluster %(id)s cannot be deleted without having all '
                     'receivers deleted.') % {'id': identity}
             LOG.error(msg)
-            raise exception.BadRequest(msg=msg)
+            reason = _("there is still receiver(s) associated with it.")
+            raise exception.ClusterBusy(cluster=db_cluster.id, reason=reason)
 
         params = {
             'name': 'cluster_delete_%s' % db_cluster.id[:8],
@@ -897,7 +902,7 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, db_cluster.id,
                                              consts.CLUSTER_DELETE, **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Cluster delete action queued: %s"), action_id)
 
         return {'action': action_id}
@@ -982,7 +987,7 @@ class EngineService(service.Service):
         action_id = action_mod.Action.create(context, db_cluster.id,
                                              consts.CLUSTER_ADD_NODES,
                                              **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Cluster add nodes action queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1044,7 +1049,7 @@ class EngineService(service.Service):
         action_id = action_mod.Action.create(context, db_cluster.id,
                                              consts.CLUSTER_DEL_NODES,
                                              **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Cluster delete nodes action queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1156,7 +1161,7 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, db_cluster.id,
                                              consts.CLUSTER_RESIZE, **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Cluster resize action queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1199,7 +1204,7 @@ class EngineService(service.Service):
         action_id = action_mod.Action.create(context, db_cluster.id,
                                              consts.CLUSTER_SCALE_OUT,
                                              **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Cluster Scale out action queued: %s"), action_id)
 
         return {'action': action_id}
@@ -1242,7 +1247,7 @@ class EngineService(service.Service):
         action_id = action_mod.Action.create(context, db_cluster.id,
                                              consts.CLUSTER_SCALE_IN,
                                              **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Cluster Scale in action queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1269,7 +1274,7 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, db_cluster.id,
                                              consts.CLUSTER_CHECK, **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Cluster check action queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1295,7 +1300,7 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, db_cluster.id,
                                              consts.CLUSTER_RECOVER, **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Cluster recover action queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1312,16 +1317,16 @@ class EngineService(service.Service):
                  matching object is found.
         """
         if uuidutils.is_uuid_like(identity):
-            node = db_api.node_get(context, identity,
-                                   project_safe=project_safe)
+            node = node_obj.Node.get(context, identity,
+                                     project_safe=project_safe)
             if not node:
-                node = db_api.node_get_by_name(context, identity,
-                                               project_safe=project_safe)
+                node = node_obj.Node.get_by_name(context, identity,
+                                                 project_safe=project_safe)
         else:
-            node = db_api.node_get_by_name(context, identity,
-                                           project_safe=project_safe)
+            node = node_obj.Node.get_by_name(context, identity,
+                                             project_safe=project_safe)
             if not node:
-                node = db_api.node_get_by_short_id(
+                node = node_obj.Node.get_by_short_id(
                     context, identity, project_safe=project_safe)
 
         if node is None:
@@ -1385,7 +1390,7 @@ class EngineService(service.Service):
                  request.
         """
         if cfg.CONF.name_unique:
-            if db_api.node_get_by_name(context, name):
+            if node_obj.Node.get_by_name(context, name):
                 msg = _("The node named (%(name)s) already exists."
                         ) % {"name": name}
                 raise exception.BadRequest(msg=msg)
@@ -1419,7 +1424,7 @@ class EngineService(service.Service):
                             'operation aborted.')
                     LOG.error(msg)
                     raise exception.ProfileTypeNotMatch(message=msg)
-            index = db_api.cluster_next_index(context, cluster_id)
+            index = cluster_obj.Cluster.get_next_index(context, cluster_id)
 
         # Create a node instance
         kwargs = {
@@ -1442,7 +1447,7 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, node.id,
                                              consts.NODE_CREATE, **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Node create action queued: %s."), action_id)
 
         result = node.to_dict()
@@ -1462,7 +1467,7 @@ class EngineService(service.Service):
                  be found.
         """
         db_node = self.node_find(context, identity)
-        node = node_mod.Node.load(context, node=db_node)
+        node = node_mod.Node.load(context, db_node=db_node)
         res = node.to_dict()
         if show_details and node.physical_id:
             res['details'] = node.get_details(context)
@@ -1529,10 +1534,10 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, db_node.id,
                                              consts.NODE_UPDATE, **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Node update action is queued: %s."), action_id)
 
-        node = node_mod.Node.load(context, node=db_node)
+        node = node_mod.Node.load(context, db_node=db_node)
         resp = node.to_dict()
         resp['action'] = action_id
 
@@ -1557,7 +1562,7 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, db_node.id,
                                              consts.NODE_DELETE, **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Node delete action is queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1585,7 +1590,7 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, db_node.id,
                                              consts.NODE_CHECK, **kwargs)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Node check action is queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1613,7 +1618,7 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, db_node.id,
                                              consts.NODE_RECOVER, **kwargs)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Node recover action is queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1632,7 +1637,7 @@ class EngineService(service.Service):
         """
         utils.validate_sort_param(sort, consts.CLUSTER_POLICY_SORT_KEYS)
         db_cluster = self.cluster_find(context, identity)
-        bindings = cluster_policy.ClusterPolicy.load_all(
+        bindings = cpm.ClusterPolicy.load_all(
             context, db_cluster.id, filters=filters, sort=sort)
 
         return [binding.to_dict() for binding in bindings]
@@ -1651,7 +1656,7 @@ class EngineService(service.Service):
         db_policy = self.policy_find(context, policy_id)
 
         try:
-            binding = cluster_policy.ClusterPolicy.load(
+            binding = cpm.ClusterPolicy.load(
                 context, db_cluster.id, db_policy.id)
         except exception.PolicyNotAttached:
             raise exception.PolicyBindingNotFound(policy=policy_id,
@@ -1695,7 +1700,7 @@ class EngineService(service.Service):
         action_id = action_mod.Action.create(context, db_cluster.id,
                                              consts.CLUSTER_ATTACH_POLICY,
                                              **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Policy attach action queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1722,8 +1727,8 @@ class EngineService(service.Service):
             msg = _("The specified policy (%s) is not found.") % policy
             raise exception.BadRequest(msg=msg)
 
-        binding = db_api.cluster_policy_get(context, db_cluster.id,
-                                            db_policy.id)
+        binding = cp_obj.ClusterPolicy.get(context, db_cluster.id,
+                                           db_policy.id)
         if binding is None:
             msg = _("The policy (%(p)s) is not attached to the specified "
                     "cluster (%(c)s).") % {'p': policy, 'c': identity}
@@ -1738,7 +1743,7 @@ class EngineService(service.Service):
         action_id = action_mod.Action.create(context, db_cluster.id,
                                              consts.CLUSTER_DETACH_POLICY,
                                              **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Policy dettach action queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1765,8 +1770,8 @@ class EngineService(service.Service):
             msg = _("The specified policy (%s) is not found.") % policy
             raise exception.BadRequest(msg=msg)
 
-        binding = db_api.cluster_policy_get(context, db_cluster.id,
-                                            db_policy.id)
+        binding = cp_obj.ClusterPolicy.get(context, db_cluster.id,
+                                           db_policy.id)
         if binding is None:
             msg = _("The policy (%(p)s) is not attached to the specified "
                     "cluster (%(c)s).") % {'p': policy, 'c': identity}
@@ -1785,7 +1790,7 @@ class EngineService(service.Service):
         action_id = action_mod.Action.create(context, db_cluster.id,
                                              consts.CLUSTER_UPDATE_POLICY,
                                              **params)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Policy update action queued: %s."), action_id)
 
         return {'action': action_id}
@@ -1799,16 +1804,16 @@ class EngineService(service.Service):
                  matching action is found.
         """
         if uuidutils.is_uuid_like(identity):
-            action = db_api.action_get(context, identity,
-                                       project_safe=project_safe)
+            action = action_obj.Action.get(context, identity,
+                                           project_safe=project_safe)
             if not action:
-                action = db_api.action_get_by_name(context, identity,
-                                                   project_safe=project_safe)
+                action = action_obj.Action.get_by_name(
+                    context, identity, project_safe=project_safe)
         else:
-            action = db_api.action_get_by_name(context, identity,
-                                               project_safe=project_safe)
+            action = action_obj.Action.get_by_name(
+                context, identity, project_safe=project_safe)
             if not action:
-                action = db_api.action_get_by_short_id(
+                action = action_obj.Action.get_by_short_id(
                     context, identity, project_safe=project_safe)
 
         if not action:
@@ -1922,16 +1927,16 @@ class EngineService(service.Service):
                  if no matching reciever is found.
         """
         if uuidutils.is_uuid_like(identity):
-            receiver = db_api.receiver_get(context, identity,
-                                           project_safe=project_safe)
-            if not receiver:
-                receiver = db_api.receiver_get_by_name(
-                    context, identity, project_safe=project_safe)
-        else:
-            receiver = db_api.receiver_get_by_name(
+            receiver = receiver_obj.Receiver.get(
                 context, identity, project_safe=project_safe)
             if not receiver:
-                receiver = db_api.receiver_get_by_short_id(
+                receiver = receiver_obj.Receiver.get_by_name(
+                    context, identity, project_safe=project_safe)
+        else:
+            receiver = receiver_obj.Receiver.get_by_name(
+                context, identity, project_safe=project_safe)
+            if not receiver:
+                receiver = receiver_obj.Receiver.get_by_short_id(
                     context, identity, project_safe=project_safe)
 
         if not receiver:
@@ -1986,7 +1991,7 @@ class EngineService(service.Service):
                  created.
         """
         if cfg.CONF.name_unique:
-            if db_api.receiver_get_by_name(context, name):
+            if receiver_obj.Receiver.get_by_name(context, name):
                 msg = _("A receiver named '%s' already exists.") % name
                 raise exception.BadRequest(msg=msg)
 
@@ -2066,7 +2071,7 @@ class EngineService(service.Service):
         """
         db_receiver = self.receiver_find(context, identity)
         LOG.info(_LI("Deleting receiver %s."), identity)
-        db_api.receiver_delete(context, db_receiver.id)
+        receiver_obj.Receiver.delete(context, db_receiver.id)
         LOG.info(_LI("Receiver %s is deleted."), identity)
 
     @request_context
@@ -2094,7 +2099,7 @@ class EngineService(service.Service):
         }
         action_id = action_mod.Action.create(context, cluster.id,
                                              receiver.action, **kwargs)
-        dispatcher.start_action(action_id=action_id)
+        dispatcher.start_action()
         LOG.info(_LI("Webhook %(w)s' triggered with action queued: %(a)s."),
                  {'w': identity, 'a': action_id})
 
@@ -2112,11 +2117,11 @@ class EngineService(service.Service):
         """
         event = None
         if uuidutils.is_uuid_like(identity):
-            event = db_api.event_get(context, identity,
-                                     project_safe=project_safe)
+            event = event_obj.Event.get(context, identity,
+                                        project_safe=project_safe)
         if not event:
-            event = db_api.event_get_by_short_id(context, identity,
-                                                 project_safe=project_safe)
+            event = event_obj.Event.get_by_short_id(context, identity,
+                                                    project_safe=project_safe)
         if not event:
             raise exception.EventNotFound(event=identity)
 
@@ -2152,9 +2157,10 @@ class EngineService(service.Service):
             if value is not None:
                 filters[consts.EVENT_LEVEL] = value
 
-        all_events = db_api.event_get_all(context, filters=filters,
-                                          limit=limit, marker=marker,
-                                          sort=sort, project_safe=project_safe)
+        all_events = event_obj.Event.get_all(context, filters=filters,
+                                             limit=limit, marker=marker,
+                                             sort=sort,
+                                             project_safe=project_safe)
 
         results = [event.as_dict() for event in all_events]
         return results

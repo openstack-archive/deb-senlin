@@ -86,13 +86,16 @@ class SchedulerTest(base.SenlinTestCase):
 
         mock_group.add_thread.assert_called_once_with(f)
 
+    @mock.patch.object(db_api, 'action_acquire_1st_ready')
     @mock.patch.object(db_api, 'action_acquire')
-    def test_start_action(self, mock_action_acquire):
+    def test_start_action(self, mock_action_acquire,
+                          mock_action_acquire_1st):
         mock_group = mock.Mock()
         self.mock_tg.return_value = mock_group
         action = mock.Mock()
         action.id = '0123'
         mock_action_acquire.return_value = action
+        mock_action_acquire_1st.return_value = None
 
         tgm = scheduler.ThreadGroupManager()
         tgm.start_action('4567', '0123')
@@ -107,7 +110,8 @@ class SchedulerTest(base.SenlinTestCase):
     def test_start_action_no_action_id(self, mock_acquire_action):
         mock_action = mock.Mock()
         mock_action.id = '0123'
-        mock_acquire_action.return_value = mock_action
+        mock_action.action = 'CLUSTER_CREATE'
+        mock_acquire_action.side_effect = [mock_action, None]
         mock_group = mock.Mock()
         self.mock_tg.return_value = mock_group
 
@@ -120,14 +124,41 @@ class SchedulerTest(base.SenlinTestCase):
         self.assertEqual(mock_thread, tgm.workers['0123'])
         mock_thread.link.assert_called_once_with(mock.ANY, '0123')
 
+    @mock.patch.object(scheduler, 'sleep')
+    @mock.patch.object(db_api, 'action_acquire_1st_ready')
+    def test_start_action_batch_control(self, mock_acquire_action, mock_sleep):
+        mock_action1 = mock.Mock()
+        mock_action1.id = 'ID1'
+        mock_action1.action = 'NODE_CREATE'
+        mock_action2 = mock.Mock()
+        mock_action2.id = 'ID2'
+        mock_action2.action = 'CLUSTER_CREATE'
+        mock_action3 = mock.Mock()
+        mock_action3.id = 'ID3'
+        mock_action3.action = 'NODE_DELETE'
+        mock_acquire_action.side_effect = [mock_action1, mock_action2,
+                                           mock_action3, None]
+        mock_group = mock.Mock()
+        self.mock_tg.return_value = mock_group
+        cfg.CONF.set_override('max_actions_per_batch', 1, enforce_type=True)
+        cfg.CONF.set_override('batch_interval', 3, enforce_type=True)
+
+        tgm = scheduler.ThreadGroupManager()
+        tgm.start_action('4567')
+
+        mock_sleep.assert_called_once_with(3)
+
+    @mock.patch.object(db_api, 'action_acquire_1st_ready')
     @mock.patch.object(db_api, 'action_acquire')
-    def test_start_action_failed_locking_action(self, mock_acquire_action):
+    def test_start_action_failed_locking_action(self, mock_acquire_action,
+                                                mock_acquire_action_1st):
         mock_acquire_action.return_value = None
+        mock_acquire_action_1st.return_value = None
         mock_group = mock.Mock()
         self.mock_tg.return_value = mock_group
 
         tgm = scheduler.ThreadGroupManager()
-        res = tgm.start_action('4567')
+        res = tgm.start_action('4567', '0123')
         self.assertIsNone(res)
 
     @mock.patch.object(db_api, 'action_acquire_1st_ready')

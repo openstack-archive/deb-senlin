@@ -10,8 +10,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import logging
-
+from oslo_log import log as logging
 
 RPC_ATTRS = (
     ENGINE_TOPIC,
@@ -153,7 +152,7 @@ EVENT_ATTRS = (
     EVENT_USER, EVENT_ACTION, EVENT_STATUS, EVENT_STATUS_REASON,
     EVENT_LEVEL, EVENT_CLUSTER_ID,
 ) = (
-    'timestamp', 'obj_id', 'obj_name', 'obj_type',
+    'timestamp', 'oid', 'oname', 'otype',
     'user', 'action', 'status', 'status_reason',
     'level', 'cluster_id',
 )

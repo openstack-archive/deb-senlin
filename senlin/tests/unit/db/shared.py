@@ -71,10 +71,10 @@ def create_cluster(ctx, profile, **kwargs):
         'next_index': 1,
         'timeout': 60,
         'desired_capacity': 0,
-        'init_at': tu.utcnow(),
+        'init_at': tu.utcnow(True),
         'status': 'INIT',
         'status_reason': 'Just Initialized',
-        'metadata': {},
+        'meta_data': {},
     }
     values.update(kwargs)
     if 'project' in kwargs:
@@ -102,7 +102,7 @@ def create_node(ctx, cluster, profile, **kwargs):
         'updated_at': None,
         'status': 'ACTIVE',
         'status_reason': 'create complete',
-        'metadata': jsonutils.loads('{"foo": "123"}'),
+        'meta_data': jsonutils.loads('{"foo": "123"}'),
         'data': jsonutils.loads('{"key1": "value1"}'),
     }
     values.update(kwargs)
@@ -168,7 +168,7 @@ def create_policy(ctx, **kwargs):
 
 def create_event(ctx, **kwargs):
     values = {
-        'timestamp': tu.utcnow(),
+        'timestamp': tu.utcnow(True),
         'obj_id': 'FAKE_ID',
         'obj_name': 'FAKE_NAME',
         'obj_type': 'CLUSTER',

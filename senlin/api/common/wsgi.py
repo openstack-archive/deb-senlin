@@ -16,7 +16,6 @@ Utility methods for working with WSGI servers
 
 import abc
 import errno
-import logging as std_logging
 import os
 import signal
 import sys
@@ -39,6 +38,8 @@ from webob import dec as webob_dec
 from webob import exc
 
 from senlin.api.common import serializers
+from senlin.api.common import version_request
+from senlin.api.common import versioned_method
 from senlin.common import exception
 from senlin.common.i18n import _
 from senlin.common.i18n import _LE
@@ -49,6 +50,10 @@ from senlin.rpc import client as rpc_client
 
 LOG = logging.getLogger(__name__)
 URL_LENGTH_LIMIT = 50000
+DEFAULT_API_VERSION = '1.0'
+API_VERSION_KEY = 'OpenStack-API-Version'
+VER_METHOD_ATTR = 'versioned_methods'
+SERVICE_ALIAS = ['clustering', 'cluster']
 
 # senlin_api, api opts
 api_opts = [
@@ -681,6 +686,17 @@ class Resource(object):
                     response.location = '/v1%s' % location
                 if not action_result:
                     action_result = None
+
+            # Attach openstack-api-version header
+            if hasattr(response, 'headers'):
+                for hdr, val in response.headers.items():
+                    response.headers[hdr] = six.text_type(val)
+                ver = request.version_request
+                if not ver.is_null():
+                    ver_res = ' '.join([SERVICE_ALIAS[0], str(ver)])
+                    response.headers[API_VERSION_KEY] = ver_res
+                    response.headers['Vary'] = API_VERSION_KEY
+
             self.dispatch(self.serializer, action, response, action_result)
             return response
 
@@ -694,7 +710,11 @@ class Resource(object):
             method = getattr(obj, action)
         except AttributeError:
             method = getattr(obj, 'default')
-        return method(*args, **kwargs)
+
+        try:
+            return method(*args, **kwargs)
+        except exception.MethodVersionNotFound as ex:
+            raise ex
 
     def get_action_args(self, request_environment):
         """Parse dictionary created by routes library."""
@@ -716,12 +736,108 @@ class Resource(object):
         return args
 
 
+class ControllerMetaclass(type):
+
+    def __new__(mcs, name, bases, cls_dict):
+        versioned_methods = None
+        for base in bases:
+            if base.__name__ == "Controller":
+                if VER_METHOD_ATTR in base.__dict__:
+                    versioned_methods = getattr(base, VER_METHOD_ATTR)
+                    delattr(base, VER_METHOD_ATTR)
+        if versioned_methods:
+            cls_dict[VER_METHOD_ATTR] = versioned_methods
+
+        return super(ControllerMetaclass, mcs).__new__(mcs, name, bases,
+                                                       cls_dict)
+
+
+@six.add_metaclass(ControllerMetaclass)
 class Controller(object):
     """Generic WSGI controller for resources."""
 
     def __init__(self, options):
         self.options = options
         self.rpc_client = rpc_client.EngineClient()
+
+    def __getattribute__(self, key):
+
+        def version_select(*args, **kwargs):
+            """Look for the method and invoke the versioned one.
+
+            This method looks for the method that matches the name provided
+            and version constraints then calls it with the supplied arguments.
+
+            :returns: The result of the method called.
+            :raises: MethodVersionNotFound if there is no method matching the
+                     name and the version constraints.
+            """
+
+            # The first argument is always the request object. The version
+            # request is attached to the request object.
+            req = kwargs['req'] if len(args) == 0 else args[0]
+            ver = req.version_request
+            func_list = self.versioned_methods[key]
+            for func in func_list:
+                if ver.matches(func.min_version, func.max_version):
+                    # update version_select wrapper so other decorator
+                    # attributes are still respected
+                    functools.update_wrapper(version_select, func.func)
+                    return func.func(self, *args, **kwargs)
+
+            # no version match
+            raise exception.MethodVersionNotFound(version=ver)
+
+        try:
+            version_meth_dict = object.__getattribute__(self, VER_METHOD_ATTR)
+        except AttributeError:
+            # no versioning on this class
+            return object.__getattribute__(self, key)
+
+        if version_meth_dict:
+            if key in object.__getattribute__(self, VER_METHOD_ATTR):
+                return version_select
+
+        return object.__getattribute__(self, key)
+
+    # This decorator must appear first (the outermost decorator) on an API
+    # method for it to work correctly
+    @classmethod
+    def api_version(cls, min_ver, max_ver=None):
+        """Decorator for versioning api methods.
+
+        Add the decorator to any method that takes a request object as the
+        first parameter and belongs to a class which inherits from
+        wsgi.Controller.
+        :param min_ver: String representing the minimum version.
+        :param max_ver: Optional string representing the maximum version.
+        """
+
+        def decorator(f):
+            obj_min_ver = version_request.APIVersionRequest(min_ver)
+            obj_max_ver = version_request.APIVersionRequest(max_ver)
+
+            func_name = f.__name__
+            new_func = versioned_method.VersionedMethod(
+                func_name, obj_min_ver, obj_max_ver, f)
+
+            func_dict = getattr(cls, VER_METHOD_ATTR, {})
+            if not func_dict:
+                setattr(cls, VER_METHOD_ATTR, func_dict)
+
+            func_list = func_dict.get(func_name, [])
+            if not func_list:
+                func_dict[func_name] = func_list
+            func_list.append(new_func)
+
+            # Ensure the list is sorted by minimum version (reversed) so when
+            # we walk through the list later in order we find the method with
+            # the latest version which supports the version requested
+            func_list.sort(key=lambda f: f.min_version, reverse=True)
+
+            return f
+
+        return decorator
 
     def default(self, req, **args):
         raise exc.HTTPNotFound()
@@ -886,7 +1002,7 @@ def load_paste_app(app_name=None):
         # Log the options used when starting if we're in debug mode...
         if cfg.CONF.debug:
             cfg.CONF.log_opt_values(logging.getLogger(app_name),
-                                    std_logging.DEBUG)
+                                    logging.DEBUG)
 
         return app
     except (LookupError, ImportError) as e:

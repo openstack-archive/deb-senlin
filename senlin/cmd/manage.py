@@ -23,6 +23,7 @@ from oslo_utils import timeutils
 from senlin.common import context
 from senlin.common.i18n import _
 from senlin.db import api
+from senlin.objects import service as service_obj
 from senlin import version
 
 CONF = cfg.CONF
@@ -50,9 +51,8 @@ class ServiceManageCommand(object):
             return
 
         status = 'down'
-        seconds_since_update = (timeutils.utcnow() -
-                                service.updated_at).total_seconds()
-        if seconds_since_update <= 2 * CONF.periodic_interval:
+        max_interval = 2 * CONF.periodic_interval
+        if timeutils.is_older_than(service.updated_at, max_interval):
             status = 'up'
 
         result = {
@@ -68,7 +68,7 @@ class ServiceManageCommand(object):
 
     def service_list(self):
         services = [self._format_service(service)
-                    for service in api.service_get_all(self.ctx)]
+                    for service in service_obj.Service.get_all(self.ctx)]
 
         print_format = "%-36s %-24s %-16s %-16s %-10s %-24s %-24s"
         print(print_format % (_('Service ID'),
@@ -89,11 +89,11 @@ class ServiceManageCommand(object):
                                   svc['updated_at']))
 
     def service_clean(self):
-        for service in api.service_get_all(self.ctx):
+        for service in service_obj.Service.get_all(self.ctx):
             svc = self._format_service(service)
             if svc['status'] == 'down':
                 print(_('Dead service %s is removed.') % svc['service_id'])
-                api.service_delete(self.ctx, svc['service_id'])
+                service_obj.Service.delete(self.ctx, svc['service_id'])
 
     @staticmethod
     def add_service_parsers(subparsers):

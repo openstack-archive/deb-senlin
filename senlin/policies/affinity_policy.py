@@ -30,8 +30,9 @@ from senlin.common.i18n import _LE
 from senlin.common import scaleutils as su
 from senlin.common import schema
 from senlin.common import utils
-from senlin.db import api as db_api
-from senlin.drivers import base as driver_base
+from senlin.drivers import base as driver
+from senlin.objects import cluster as co
+from senlin.objects import cluster_policy as cpo
 from senlin.policies import base
 
 
@@ -117,7 +118,7 @@ class AffinityPolicy(base.Policy):
         if self._novaclient is not None:
             return self._novaclient
         params = self._build_conn_params(obj)
-        self._novaclient = driver_base.SenlinDriver().compute(params)
+        self._novaclient = driver.SenlinDriver().compute(params)
         return self._novaclient
 
     def attach(self, cluster):
@@ -200,7 +201,7 @@ class AffinityPolicy(base.Policy):
         reason = _('Servergroup resource deletion succeeded.')
 
         ctx = context.get_admin_context()
-        binding = db_api.cluster_policy_get(ctx, cluster.id, self.id)
+        binding = cpo.ClusterPolicy.get(ctx, cluster.id, self.id)
         if not binding or not binding.data:
             return True, reason
 
@@ -250,20 +251,20 @@ class AffinityPolicy(base.Policy):
         elif action.action == consts.CLUSTER_SCALE_OUT:
             count = action.inputs.get('count', 1)
         else:  # CLUSTER_RESIZE
-            db_cluster = db_api.cluster_get(action.context, cluster_id)
+            db_cluster = co.Cluster.get(action.context, cluster_id)
             su.parse_resize_params(action, db_cluster)
             if 'creation' not in action.data:
                 return
             count = action.data['creation']['count']
 
-        cp = db_api.cluster_policy_get(action.context, cluster_id, self.id)
+        cp = cpo.ClusterPolicy.get(action.context, cluster_id, self.id)
         policy_data = self._extract_policy_data(cp.data)
         pd_entry = {'servergroup': policy_data['servergroup_id']}
 
         # special handling for vSphere DRS case where we need to find out
         # the name of the vSphere host which has DRS enabled.
         if self.enable_drs:
-            cluster_obj = db_api.cluster_get(action.context, cluster_id)
+            cluster_obj = co.Cluster.get(action.context, cluster_id)
             nc = self.nova(cluster_obj)
 
             hypervisors = nc.hypervisor_list()

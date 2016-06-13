@@ -83,6 +83,20 @@ class BadRequest(SenlinException):
     msg_fmt = _("The request is malformed: %(msg)s")
 
 
+class InvalidAPIVersionString(SenlinException):
+    msg_fmt = _("API Version String (%(version)s) is of invalid format. It "
+                "must be of format 'major.minor'.")
+
+
+class MethodVersionNotFound(SenlinException):
+    msg_fmt = _("API version %(version)s is not supported on this method.")
+
+
+class InvalidGlobalAPIVersion(SenlinException):
+    msg_fmt = _("Version %(req_ver)s is not supported by the API. Minimum is "
+                "%(min_ver)s and maximum is %(max_ver)s.")
+
+
 class MultipleChoices(SenlinException):
     msg_fmt = _("Multiple results found matching the query criteria %(arg)s. "
                 "Please be more specific.")
@@ -94,6 +108,10 @@ class InvalidParameter(SenlinException):
 
 class ClusterNotFound(SenlinException):
     msg_fmt = _("The cluster (%(cluster)s) could not be found.")
+
+
+class ClusterBusy(SenlinException):
+    msg_fmt = _("The cluster (%(cluster)s) cannot be deleted: %(reason)s")
 
 
 class NodeNotFound(SenlinException):

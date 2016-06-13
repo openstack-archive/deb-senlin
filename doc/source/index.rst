@@ -27,6 +27,7 @@ contribute to the project.
 
    overview
    install
+   tutorial/index
    user/index
    developer/index
    glossary
@@ -51,8 +52,7 @@ Indices and tables
 ~~~~~~~~~~~~~~~~~~
 
 * :ref:`genindex`
-* :ref:`modindex`
 * :ref:`search`
 
 
-.. _`OpenStack API Complete Reference - Clustering`: http://api.openstack.org/api-ref-clustering-v1.html
+.. _`OpenStack API Complete Reference - Clustering`: http://developer.openstack.org/api-ref/clustering/

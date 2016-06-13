@@ -13,7 +13,7 @@
 from oslo_utils import timeutils
 
 from senlin.common import exception
-from senlin.db import api as db_api
+from senlin.objects import cluster_policy as cpo
 
 
 class ClusterPolicy(object):
@@ -46,11 +46,11 @@ class ClusterPolicy(object):
         }
 
         if self.id:
-            db_api.cluster_policy_update(context, self.cluster_id,
-                                         self.policy_id, values)
+            cpo.ClusterPolicy.update(context, self.cluster_id, self.policy_id,
+                                     values)
         else:
-            binding = db_api.cluster_policy_attach(context, self.cluster_id,
-                                                   self.policy_id, values)
+            binding = cpo.ClusterPolicy.create(context, self.cluster_id,
+                                               self.policy_id, values)
             self.cluster_name = binding.cluster.name
             self.policy_name = binding.policy.name
             self.policy_type = binding.policy.type
@@ -59,47 +59,46 @@ class ClusterPolicy(object):
         return self.id
 
     @classmethod
-    def _from_db_record(cls, context, record):
-        '''Construct a node object from database record.
+    def _from_object(cls, context, obj):
+        """Construct a cluster policy binding from database object.
 
         :param context: the context used for DB operations;
-        :param record: a DB node object that contains all fields;
-        '''
+        :param obj: a cluster-policy binding object that contains all fields;
+        """
         kwargs = {
-            'id': record.id,
-            'enabled': record.enabled,
-            'data': record.data,
-            'last_op': record.last_op,
-            'priority': record.priority,
+            'id': obj.id,
+            'enabled': obj.enabled,
+            'data': obj.data,
+            'last_op': obj.last_op,
+            'priority': obj.priority,
 
             # derived data
-            'cluster_name': record.cluster.name,
-            'policy_name': record.policy.name,
-            'policy_type': record.policy.type,
+            'cluster_name': obj.cluster.name,
+            'policy_name': obj.policy.name,
+            'policy_type': obj.policy.type,
         }
 
-        return cls(record.cluster_id, record.policy_id, context=context,
-                   **kwargs)
+        return cls(obj.cluster_id, obj.policy_id, context=context, **kwargs)
 
     @classmethod
     def load(cls, context, cluster_id, policy_id):
         '''Retrieve a cluster-policy binding from database.'''
 
-        binding = db_api.cluster_policy_get(context, cluster_id, policy_id)
+        binding = cpo.ClusterPolicy.get(context, cluster_id, policy_id)
         if binding is None:
             raise exception.PolicyNotAttached(policy=policy_id,
                                               cluster=cluster_id)
 
-        return cls._from_db_record(context, binding)
+        return cls._from_object(context, binding)
 
     @classmethod
     def load_all(cls, context, cluster_id, filters=None, sort=None):
         """Retrieve all policies attached to a specific cluster."""
-        bindings = db_api.cluster_policy_get_all(context, cluster_id,
-                                                 filters=filters,
-                                                 sort=sort)
+        bindings = cpo.ClusterPolicy.get_all(context, cluster_id,
+                                             filters=filters,
+                                             sort=sort)
 
-        return [cls._from_db_record(context, b) for b in bindings]
+        return [cls._from_object(context, b) for b in bindings]
 
     def cooldown_inprogress(self, cooldown):
         if self.last_op:
@@ -109,7 +108,7 @@ class ClusterPolicy(object):
         return False
 
     def record_last_op(self, context):
-        self.last_op = timeutils.utcnow()
+        self.last_op = timeutils.utcnow(True)
         self.store(context)
 
     def to_dict(self):

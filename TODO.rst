@@ -15,6 +15,16 @@ HIGH PRIORITY
 API
 ---
   - Find and fill gaps with API-WG besides the one we already identified.
+  - Validate API request for unexpected attributes. Such attributes should
+    result in a 400 error. [https://review.openstack.org/#/c/260292]
+
+ENGINE
+------
+  - Scaling Improvments [https://etherpad.openstack.org/p/newton-senlin-ha]
+    * Ensure all scaling operations are based on 'desired_capacity'.
+    * Ensure 'desired_capacity' will be controlled by users, not senlin engine
+      or policies.
+    * Always do health check before any scaling actions.
 
 POLICY
 ------
@@ -30,6 +40,9 @@ API
   - Support advanced filters as suggested by the API WG:
     `Filtering Guidelines`_
   - Support to ``os-request-id`` when serving api requests.
+  - Add profile-validate and policy-validate APIs:
+    https://etherpad.openstack.org/p/newton-senlin-validation
+
 
 PROFILE
 -------
@@ -65,7 +78,6 @@ ENGINE
 
 POLICY
 ------
-  - Scaling policy: allow a cluster to scale to existing nodes.
   - Batching policy: create batchs for node creation/deletion/update.
 
 PROFILE

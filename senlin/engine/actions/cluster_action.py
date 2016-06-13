@@ -21,7 +21,6 @@ from senlin.common.i18n import _
 from senlin.common.i18n import _LI
 from senlin.common import scaleutils
 from senlin.common import utils
-from senlin.db import api as db_api
 from senlin.engine.actions import base
 from senlin.engine import cluster as cluster_mod
 from senlin.engine import dispatcher
@@ -29,6 +28,10 @@ from senlin.engine import event as EVENT
 from senlin.engine import node as node_mod
 from senlin.engine import scheduler
 from senlin.engine import senlin_lock
+from senlin.objects import action as ao
+from senlin.objects import cluster as co
+from senlin.objects import dependency as dobj
+from senlin.objects import node as no
 from senlin.policies import base as policy_mod
 
 LOG = logging.getLogger(__name__)
@@ -117,7 +120,7 @@ class ClusterAction(base.Action):
         nodes = []
         child = []
         for m in range(count):
-            index = db_api.cluster_next_index(self.context, self.cluster.id)
+            index = co.Cluster.get_next_index(self.context, self.cluster.id)
             kwargs = {
                 'index': index,
                 'metadata': {},
@@ -148,11 +151,11 @@ class ClusterAction(base.Action):
 
         if child:
             # Build dependency and make the new action ready
-            db_api.dependency_add(self.context, [a for a in child], self.id)
+            dobj.Dependency.create(self.context, [a for a in child], self.id)
             for cid in child:
-                db_api.action_update(self.context, cid,
-                                     {'status': base.Action.READY})
-                dispatcher.start_action(action_id=cid)
+                ao.Action.update(self.context, cid,
+                                 {'status': base.Action.READY})
+            dispatcher.start_action()
 
             # Wait for cluster creation to complete
             res, reason = self._wait_for_dependents()
@@ -241,11 +244,11 @@ class ClusterAction(base.Action):
             child.append(action_id)
 
         if child:
-            db_api.dependency_add(self.context, [c for c in child], self.id)
+            dobj.Dependency.create(self.context, [c for c in child], self.id)
             for cid in child:
-                db_api.action_update(self.context, cid,
-                                     {'status': base.Action.READY})
-                dispatcher.start_action(action_id=cid)
+                ao.Action.update(self.context, cid,
+                                 {'status': base.Action.READY})
+            dispatcher.start_action()
 
             result, new_reason = self._wait_for_dependents()
             if result != self.RES_OK:
@@ -278,18 +281,15 @@ class ClusterAction(base.Action):
             child.append(action_id)
 
         if child:
-            db_api.dependency_add(self.context, [c for c in child], self.id)
+            dobj.Dependency.create(self.context, [c for c in child], self.id)
             for cid in child:
                 # Build dependency and make the new action ready
-                db_api.action_update(self.context, cid,
-                                     {'status': base.Action.READY})
-                dispatcher.start_action(action_id=cid)
+                ao.Action.update(self.context, cid,
+                                 {'status': base.Action.READY})
+            dispatcher.start_action()
 
             res, reason = self._wait_for_dependents()
             if res == self.RES_OK:
-                self.cluster.desired_capacity -= len(node_ids)
-                self.cluster.store(self.context)
-
                 self.outputs['nodes_removed'] = node_ids
                 for node_id in node_ids:
                     self.cluster.remove_node(node_id)
@@ -379,11 +379,11 @@ class ClusterAction(base.Action):
             child.append(action_id)
 
         if child:
-            db_api.dependency_add(self.context, [c for c in child], self.id)
+            dobj.Dependency.create(self.context, [c for c in child], self.id)
             for cid in child:
-                db_api.action_update(self.context, cid,
-                                     {'status': base.Action.READY})
-                dispatcher.start_action(action_id=cid)
+                ao.Action.update(self.context, cid,
+                                 {'status': base.Action.READY})
+            dispatcher.start_action()
 
         # Wait for dependent action if any
         result, new_reason = self._wait_for_dependents()
@@ -426,7 +426,7 @@ class ClusterAction(base.Action):
         errors = []
         for node_id in node_ids:
             try:
-                node = db_api.node_get(self.context, node_id)
+                node = no.Node.get(self.context, node_id)
             except exception.NodeNotFound:
                 errors.append(_('Node [%s] is not found.') % node_id)
                 continue
@@ -447,6 +447,10 @@ class ClusterAction(base.Action):
 
         if result != self.RES_OK:
             reason = new_reason
+        else:
+            self.cluster.desired_capacity -= len(nodes)
+            self.cluster.store(self.context)
+
         return result, reason
 
     def _get_action_data(self, current_size):
@@ -488,11 +492,11 @@ class ClusterAction(base.Action):
             child.append(action_id)
 
         if child:
-            db_api.dependency_add(self.context, [c for c in child], self.id)
+            dobj.Dependency.create(self.context, [c for c in child], self.id)
             for cid in child:
-                db_api.action_update(self.context, cid,
-                                     {'status': base.Action.READY})
-                dispatcher.start_action(action_id=cid)
+                ao.Action.update(self.context, cid,
+                                 {'status': base.Action.READY})
+            dispatcher.start_action()
 
             # Wait for dependent action if any
             res, new_reason = self._wait_for_dependents()
@@ -541,10 +545,11 @@ class ClusterAction(base.Action):
             children.append(action_id)
 
         if children:
-            db_api.dependency_add(self.context, [c for c in children], self.id)
+            dobj.Dependency.create(self.context, [c for c in children],
+                                   self.id)
             for cid in children:
-                db_api.action_update(self.context, cid, {'status': 'READY'})
-                dispatcher.start_action(action_id=cid)
+                ao.Action.update(self.context, cid, {'status': 'READY'})
+            dispatcher.start_action()
 
             # Wait for dependent action if any
             res, reason = self._wait_for_dependents()
@@ -652,11 +657,11 @@ class ClusterAction(base.Action):
         result, reason = self._create_nodes(count)
         if result == self.RES_OK:
             reason = _('Cluster scaling succeeded.')
-            # TODO(anyone): make update to desired_capacity customizable
             self.cluster.set_status(self.context, self.cluster.ACTIVE, reason,
                                     desired_capacity=new_size)
         elif result in [self.RES_CANCEL, self.RES_TIMEOUT, self.RES_ERROR]:
-            self.cluster.set_status(self.context, self.cluster.ERROR, reason)
+            self.cluster.set_status(self.context, self.cluster.ERROR, reason,
+                                    desired_capacity=new_size)
         else:  # RES_RETRY
             pass
 
@@ -721,11 +726,11 @@ class ClusterAction(base.Action):
 
         if result == self.RES_OK:
             reason = _('Cluster scaling succeeded.')
-            # TODO(anyone): make update to desired capacity customizable
             self.cluster.set_status(self.context, self.cluster.ACTIVE, reason,
                                     desired_capacity=new_size)
         elif result in [self.RES_CANCEL, self.RES_TIMEOUT, self.RES_ERROR]:
-            self.cluster.set_status(self.context, self.cluster.ERROR, reason)
+            self.cluster.set_status(self.context, self.cluster.ERROR, reason,
+                                    desired_capacity=new_size)
         else:
             # RES_RETRY
             pass

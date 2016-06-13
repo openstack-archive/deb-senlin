@@ -49,7 +49,7 @@ class DBAPINodeTest(base.SenlinTestCase):
         self.assertIsNone(node.updated_at)
         self.assertEqual('ACTIVE', node.status)
         self.assertEqual('create complete', node.status_reason)
-        self.assertEqual('{"foo": "123"}', jsonutils.dumps(node.metadata))
+        self.assertEqual('{"foo": "123"}', jsonutils.dumps(node.meta_data))
         self.assertEqual('{"key1": "value1"}', jsonutils.dumps(node.data))
         self.assertEqual(self.cluster.id, node.cluster_id)
         self.assertEqual(self.profile.id, node.profile_id)
@@ -178,7 +178,7 @@ class DBAPINodeTest(base.SenlinTestCase):
         node_ids = ['node1', 'node2', 'node3']
         for v in node_ids:
             shared.create_node(self.ctx, self.cluster, self.profile,
-                               id=v, init_at=tu.utcnow())
+                               id=v, init_at=tu.utcnow(True))
 
         nodes = db_api.node_get_all(self.ctx, limit=1)
         self.assertEqual(1, len(nodes))
@@ -247,7 +247,7 @@ class DBAPINodeTest(base.SenlinTestCase):
 
     def test_node_get_all_default_sorting(self):
         nodes = [shared.create_node(self.ctx, None, self.profile,
-                                    init_at=tu.utcnow())
+                                    init_at=tu.utcnow(True))
                  for x in range(3)]
 
         results = db_api.node_get_all(self.ctx)
@@ -442,7 +442,7 @@ class DBAPINodeTest(base.SenlinTestCase):
 
     def test_node_migrate_from_none(self):
         node_orphan = shared.create_node(self.ctx, None, self.profile)
-        timestamp = tu.utcnow()
+        timestamp = tu.utcnow(True)
 
         node = db_api.node_migrate(self.ctx, node_orphan.id, self.cluster.id,
                                    timestamp, 'NEW-ROLE')
@@ -456,7 +456,7 @@ class DBAPINodeTest(base.SenlinTestCase):
 
     def test_node_migrate_to_none(self):
         node = shared.create_node(self.ctx, self.cluster, self.profile)
-        timestamp = tu.utcnow()
+        timestamp = tu.utcnow(True)
 
         node_new = db_api.node_migrate(self.ctx, node.id, None, timestamp)
         self.assertEqual(timestamp, node_new.updated_at)
@@ -473,10 +473,13 @@ class DBAPINodeTest(base.SenlinTestCase):
         self.assertEqual(1, len(nodes))
         nodes = db_api.node_get_all_by_cluster(self.ctx, cluster2.id)
         self.assertEqual(0, len(nodes))
+        # Refresh cluster1 and cluster2
+        cluster1 = db_api.cluster_get(self.ctx, cluster1.id)
+        cluster2 = db_api.cluster_get(self.ctx, cluster2.id)
         self.assertEqual(2, cluster1.next_index)
         self.assertEqual(1, cluster2.next_index)
 
-        timestamp = tu.utcnow()
+        timestamp = tu.utcnow(True)
 
         node_new = db_api.node_migrate(self.ctx, node.id, cluster2.id,
                                        timestamp)
@@ -493,7 +496,7 @@ class DBAPINodeTest(base.SenlinTestCase):
         self.assertEqual(2, cluster2.next_index)
 
         # Migrate it back!
-        timestamp = tu.utcnow()
+        timestamp = tu.utcnow(True)
 
         node_new = db_api.node_migrate(self.ctx, node.id, cluster1.id,
                                        timestamp, 'FAKE-ROLE')

@@ -12,16 +12,16 @@
 
 import datetime
 import mock
-import uuid
 
 from oslo_config import cfg
 from oslo_utils import timeutils
+from oslo_utils import uuidutils
 
 from senlin.common import consts
 from senlin.common import context
 from senlin.common import messaging as rpc_messaging
-from senlin.db import api as db_api
 from senlin.engine import service
+from senlin.objects import service as service_obj
 from senlin.tests.unit.common import base
 
 
@@ -34,7 +34,9 @@ class EngineBasicTest(base.SenlinTestCase):
 
         super(EngineBasicTest, self).setUp()
         self.eng = service.EngineService('host-a', 'topic-a')
-        self.gen_id = self.patchobject(uuid, 'uuid4', return_value='1234')
+        self.fake_id = '4db0a14c-dc10-4131-8ed6-7573987ce9b0'
+        self.gen_id = self.patchobject(uuidutils, 'generate_uuid',
+                                       return_value=self.fake_id)
 
         self.fake_rpc_server = mock.Mock()
         self.get_rpc = self.patchobject(rpc_messaging, 'get_rpc_server',
@@ -53,7 +55,7 @@ class EngineBasicTest(base.SenlinTestCase):
         self.eng.start()
 
         self.gen_id.assert_called_once_with()
-        self.assertEqual('1234', self.eng.engine_id)
+        self.assertEqual(self.fake_id, self.eng.engine_id)
         self.assertIsNotNone(self.eng.TG)
 
         mock_disp_cls.assert_called_once_with(self.eng,
@@ -112,30 +114,32 @@ class EngineStatusTest(base.SenlinTestCase):
     def setUp(self):
         super(EngineStatusTest, self).setUp()
         self.eng = service.EngineService('host-a', 'topic-a')
-        self.gen_id = self.patchobject(uuid, 'uuid4', return_value='1234')
+        fake_id = '4db0a14c-dc10-4131-8ed6-7573987ce9b0'
+        self.gen_id = self.patchobject(uuidutils, 'generate_uuid',
+                                       return_value=fake_id)
 
         self.fake_rpc_server = mock.Mock()
         self.get_rpc = self.patchobject(rpc_messaging, 'get_rpc_server',
                                         return_value=self.fake_rpc_server)
 
-    @mock.patch.object(db_api, 'service_create')
-    @mock.patch.object(db_api, 'service_update')
+    @mock.patch.object(service_obj.Service, 'create')
+    @mock.patch.object(service_obj.Service, 'update')
     def test_service_manage_report_create(self, mock_update, mock_create):
         mock_update.return_value = None
-        self.eng.service_manage_report()
-        expected_args = dict(host=self.eng.host,
-                             binary='senlin-engine',
-                             service_id=self.eng.engine_id,
-                             topic=self.eng.topic)
-        mock_create.assert_called_once_with(mock.ANY, **expected_args)
 
-    @mock.patch.object(db_api, 'service_update')
+        self.eng.service_manage_report()
+
+        mock_create.assert_called_once_with(
+            mock.ANY, self.eng.engine_id, self.eng.host, 'senlin-engine',
+            self.eng.topic)
+
+    @mock.patch.object(service_obj.Service, 'update')
     def test_service_manage_report_update(self, mock_update):
         mock_update.return_value = mock.Mock()
         self.eng.service_manage_report()
         mock_update.assert_called_once_with(mock.ANY, self.eng.engine_id)
 
-    @mock.patch.object(db_api, 'service_update')
+    @mock.patch.object(service_obj.Service, 'update')
     def test_service_manage_report_error(self, mock_update):
         mock_update.side_effect = [Exception]
         self.eng.service_manage_report()
@@ -143,12 +147,11 @@ class EngineStatusTest(base.SenlinTestCase):
         expect_str = 'Service %s update failed' % self.eng.engine_id
         self.assertIn(expect_str, self.LOG.output)
 
-    @mock.patch.object(db_api, 'service_get_all')
-    @mock.patch.object(db_api, 'service_delete')
+    @mock.patch.object(service_obj.Service, 'get_all')
+    @mock.patch.object(service_obj.Service, 'delete')
     def test_service_manage_report_cleanup(self, mock_delete, mock_get_all):
-        ages_a_go = timeutils.utcnow() - datetime.timedelta(
-            seconds=2 * cfg.CONF.periodic_interval)
-        mock_get_all.return_value = [{'id': 'foo',
-                                      'updated_at': ages_a_go}]
+        delta = datetime.timedelta(seconds=2 * cfg.CONF.periodic_interval)
+        ages_a_go = timeutils.utcnow(True) - delta
+        mock_get_all.return_value = [{'id': 'foo', 'updated_at': ages_a_go}]
         self.eng.service_manage_cleanup()
         mock_delete.assert_called_once_with(mock.ANY, 'foo')

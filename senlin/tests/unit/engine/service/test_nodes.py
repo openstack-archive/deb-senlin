@@ -19,11 +19,12 @@ import six
 from senlin.common import consts
 from senlin.common import exception as exc
 from senlin.common.i18n import _
-from senlin.db.sqlalchemy import api as db_api
 from senlin.engine.actions import base as action_mod
 from senlin.engine import dispatcher
 from senlin.engine import node as node_mod
 from senlin.engine import service
+from senlin.objects import cluster as co
+from senlin.objects import node as no
 from senlin.tests.unit.common import base
 from senlin.tests.unit.common import utils
 
@@ -35,7 +36,7 @@ class NodeTest(base.SenlinTestCase):
         self.ctx = utils.dummy_context(project='node_test_project')
         self.eng = service.EngineService('host-a', 'topic-a')
 
-    @mock.patch.object(db_api, 'node_get')
+    @mock.patch.object(no.Node, 'get')
     def test_node_find_by_uuid(self, mock_get):
         x_node = mock.Mock()
         mock_get.return_value = x_node
@@ -46,8 +47,8 @@ class NodeTest(base.SenlinTestCase):
         self.assertEqual(x_node, result)
         mock_get.assert_called_once_with(self.ctx, aid, project_safe=True)
 
-    @mock.patch.object(db_api, 'node_get_by_name')
-    @mock.patch.object(db_api, 'node_get')
+    @mock.patch.object(no.Node, 'get_by_name')
+    @mock.patch.object(no.Node, 'get')
     def test_node_find_by_uuid_as_name(self, mock_get, mock_name):
         mock_get.return_value = None
         x_node = mock.Mock()
@@ -60,7 +61,7 @@ class NodeTest(base.SenlinTestCase):
         mock_get.assert_called_once_with(self.ctx, aid, project_safe=False)
         mock_name.assert_called_once_with(self.ctx, aid, project_safe=False)
 
-    @mock.patch.object(db_api, 'node_get_by_name')
+    @mock.patch.object(no.Node, 'get_by_name')
     def test_node_find_by_name(self, mock_name):
         x_node = mock.Mock()
         mock_name.return_value = x_node
@@ -71,8 +72,8 @@ class NodeTest(base.SenlinTestCase):
         self.assertEqual(x_node, result)
         mock_name.assert_called_once_with(self.ctx, aid, project_safe=True)
 
-    @mock.patch.object(db_api, 'node_get_by_short_id')
-    @mock.patch.object(db_api, 'node_get_by_name')
+    @mock.patch.object(no.Node, 'get_by_short_id')
+    @mock.patch.object(no.Node, 'get_by_name')
     def test_node_find_by_short_id(self, mock_name, mock_shortid):
         mock_name.return_value = None
         x_node = mock.Mock()
@@ -85,7 +86,7 @@ class NodeTest(base.SenlinTestCase):
         mock_name.assert_called_once_with(self.ctx, aid, project_safe=False)
         mock_shortid.assert_called_once_with(self.ctx, aid, project_safe=False)
 
-    @mock.patch.object(db_api, 'node_get_by_short_id')
+    @mock.patch.object(no.Node, 'get_by_short_id')
     def test_node_find_not_found(self, mock_shortid):
         mock_shortid.return_value = None
 
@@ -268,11 +269,11 @@ class NodeTest(base.SenlinTestCase):
             name='node_create_NODE_ID',
             cause=action_mod.CAUSE_RPC,
             status=action_mod.Action.READY)
-        notify.assert_called_once_with(action_id='ACTION_ID')
+        notify.assert_called_once_with()
 
     @mock.patch.object(action_mod.Action, 'create')
     @mock.patch('senlin.engine.node.Node')
-    @mock.patch.object(db_api, 'cluster_next_index')
+    @mock.patch.object(co.Cluster, 'get_next_index')
     @mock.patch.object(service.EngineService, 'cluster_find')
     @mock.patch.object(service.EngineService, 'profile_find')
     @mock.patch.object(dispatcher, 'start_action')
@@ -307,11 +308,11 @@ class NodeTest(base.SenlinTestCase):
             name='node_create_NODE_ID',
             cause=action_mod.CAUSE_RPC,
             status=action_mod.Action.READY)
-        notify.assert_called_once_with(action_id='ACTION_ID')
+        notify.assert_called_once_with()
 
     @mock.patch.object(action_mod.Action, 'create')
     @mock.patch('senlin.engine.node.Node')
-    @mock.patch.object(db_api, 'cluster_next_index')
+    @mock.patch.object(co.Cluster, 'get_next_index')
     @mock.patch.object(service.EngineService, 'cluster_find')
     @mock.patch.object(service.EngineService, 'profile_find')
     @mock.patch.object(dispatcher, 'start_action')
@@ -352,9 +353,9 @@ class NodeTest(base.SenlinTestCase):
             name='node_create_NODE_ID',
             cause=action_mod.CAUSE_RPC,
             status=action_mod.Action.READY)
-        notify.assert_called_once_with(action_id='ACTION_ID')
+        notify.assert_called_once_with()
 
-    @mock.patch.object(db_api, 'node_get_by_name')
+    @mock.patch.object(no.Node, 'get_by_name')
     def test_node_create_name_conflict(self, mock_get):
         cfg.CONF.set_override('name_unique', True, enforce_type=True)
         mock_get.return_value = mock.Mock()
@@ -438,7 +439,7 @@ class NodeTest(base.SenlinTestCase):
 
         self.assertEqual({'foo': 'bar'}, result)
         mock_find.assert_called_once_with(self.ctx, 'FAKE_NODE')
-        mock_load.assert_called_once_with(self.ctx, node=x_obj)
+        mock_load.assert_called_once_with(self.ctx, db_node=x_obj)
         x_node.to_dict.assert_called_once_with()
 
     @mock.patch.object(node_mod.Node, 'load')
@@ -456,7 +457,7 @@ class NodeTest(base.SenlinTestCase):
         self.assertEqual({'foo': 'bar', 'details': {'info': 'blahblah'}},
                          result)
         mock_find.assert_called_once_with(self.ctx, 'FAKE_NODE')
-        mock_load.assert_called_once_with(self.ctx, node=x_obj)
+        mock_load.assert_called_once_with(self.ctx, db_node=x_obj)
         x_node.to_dict.assert_called_once_with()
         x_node.get_details.assert_called_once_with(self.ctx)
 
@@ -485,7 +486,7 @@ class NodeTest(base.SenlinTestCase):
 
         self.assertEqual({'foo': 'bar'}, result)
         mock_find.assert_called_once_with(self.ctx, 'FAKE_NODE')
-        mock_load.assert_called_once_with(self.ctx, node=x_obj)
+        mock_load.assert_called_once_with(self.ctx, db_node=x_obj)
         x_node.to_dict.assert_called_once_with()
         self.assertEqual(0, x_node.get_details.call_count)
 
@@ -520,8 +521,8 @@ class NodeTest(base.SenlinTestCase):
                     'KEY': 'V1',
                 }
             })
-        mock_start.assert_called_once_with(action_id='ACTION_ID')
-        mock_load.assert_called_once_with(self.ctx, node=x_obj)
+        mock_start.assert_called_once_with()
+        mock_load.assert_called_once_with(self.ctx, db_node=x_obj)
 
     @mock.patch.object(dispatcher, 'start_action')
     @mock.patch.object(action_mod.Action, 'create')
@@ -564,8 +565,8 @@ class NodeTest(base.SenlinTestCase):
             inputs={
                 'new_profile_id': 'NEW_PROFILE_ID',
             })
-        mock_start.assert_called_once_with(action_id='ACTION_ID')
-        mock_load.assert_called_once_with(self.ctx, node=x_obj)
+        mock_start.assert_called_once_with()
+        mock_load.assert_called_once_with(self.ctx, db_node=x_obj)
 
     @mock.patch.object(service.EngineService, 'node_find')
     def test_node_update_node_not_found(self, mock_find):
@@ -653,7 +654,7 @@ class NodeTest(base.SenlinTestCase):
             name='node_delete_12345678',
             cause=action_mod.CAUSE_RPC,
             status=action_mod.Action.READY)
-        mock_start.assert_called_once_with(action_id='ACTION_ID')
+        mock_start.assert_called_once_with()
 
     @mock.patch.object(service.EngineService, 'node_find')
     def test_node_delete_node_not_found(self, mock_find):
@@ -685,7 +686,7 @@ class NodeTest(base.SenlinTestCase):
             cause=action_mod.CAUSE_RPC,
             status=action_mod.Action.READY,
             inputs={})
-        mock_start.assert_called_once_with(action_id='ACTION_ID')
+        mock_start.assert_called_once_with()
 
     @mock.patch.object(service.EngineService, 'node_find')
     def test_node_check_not_found(self, mock_find):
@@ -718,7 +719,7 @@ class NodeTest(base.SenlinTestCase):
             cause=action_mod.CAUSE_RPC,
             status=action_mod.Action.READY,
             inputs={'foo': 'bar'})
-        mock_start.assert_called_once_with(action_id='ACTION_ID')
+        mock_start.assert_called_once_with()
 
     @mock.patch.object(service.EngineService, 'node_find')
     def test_node_recover_not_found(self, mock_find):

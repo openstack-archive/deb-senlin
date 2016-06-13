@@ -258,6 +258,10 @@ def cred_delete(context, user, project):
     return IMPL.cred_delete(context, user, project)
 
 
+def cred_create_update(context, values):
+    return IMPL.cred_create_update(context, values)
+
+
 # Events
 def event_create(context, values):
     return IMPL.event_create(context, values)
@@ -435,11 +439,8 @@ def service_get_all(context):
 
 def registry_create(context, cluster_id, check_type, interval, params,
                     engine_id):
-    return IMPL.registry_create(context, cluster_id=cluster_id,
-                                check_type=check_type,
-                                interval=interval,
-                                params=params,
-                                engine_id=engine_id)
+    return IMPL.registry_create(context, cluster_id, check_type, interval,
+                                params, engine_id)
 
 
 def registry_delete(context, cluster_id):
@@ -447,7 +448,7 @@ def registry_delete(context, cluster_id):
 
 
 def registry_claim(context, engine_id):
-    return IMPL.registry_claim(context, engine_id=engine_id)
+    return IMPL.registry_claim(context, engine_id)
 
 
 def db_sync(engine, version=None):

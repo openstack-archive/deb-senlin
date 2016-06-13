@@ -19,8 +19,9 @@ from senlin.common import exception
 from senlin.common.i18n import _
 from senlin.common import schema
 from senlin.common import utils
-from senlin.db import api as db_api
 from senlin.engine import environment
+from senlin.objects import credential as co
+from senlin.objects import policy as po
 
 CHECK_RESULTS = (
     CHECK_OK, CHECK_ERROR,
@@ -108,21 +109,25 @@ class Policy(object):
         self.singleton = True
 
     @classmethod
-    def _from_db_record(cls, record):
-        '''Construct a policy object from a database record.'''
+    def _from_object(cls, policy):
+        """Construct a policy from a Policy object.
+
+        @param cls: The target class.
+        @param policy: A policy object.
+        """
 
         kwargs = {
-            'id': record.id,
-            'type': record.type,
-            'user': record.user,
-            'project': record.project,
-            'domain': record.domain,
-            'created_at': record.created_at,
-            'updated_at': record.updated_at,
-            'data': record.data,
+            'id': policy.id,
+            'type': policy.type,
+            'user': policy.user,
+            'project': policy.project,
+            'domain': policy.domain,
+            'created_at': policy.created_at,
+            'updated_at': policy.updated_at,
+            'data': policy.data,
         }
 
-        return cls(record.name, record.spec, **kwargs)
+        return cls(policy.name, policy.spec, **kwargs)
 
     @classmethod
     def load(cls, context, policy_id=None, db_policy=None, project_safe=True):
@@ -137,32 +142,32 @@ class Policy(object):
         :returns: An object of the proper policy class.
         """
         if db_policy is None:
-            db_policy = db_api.policy_get(context, policy_id,
-                                          project_safe=project_safe)
+            db_policy = po.Policy.get(context, policy_id,
+                                      project_safe=project_safe)
             if db_policy is None:
                 raise exception.PolicyNotFound(policy=policy_id)
 
-        return cls._from_db_record(db_policy)
+        return cls._from_object(db_policy)
 
     @classmethod
     def load_all(cls, context, limit=None, marker=None, sort=None,
                  filters=None, project_safe=True):
         """Retrieve all policies from database."""
 
-        records = db_api.policy_get_all(context, limit=limit, marker=marker,
-                                        sort=sort, filters=filters,
-                                        project_safe=project_safe)
+        objs = po.Policy.get_all(context, limit=limit, marker=marker,
+                                 sort=sort, filters=filters,
+                                 project_safe=project_safe)
 
-        for record in records:
-            yield cls._from_db_record(record)
+        for obj in objs:
+            yield cls._from_object(obj)
 
     @classmethod
     def delete(cls, context, policy_id):
-        db_api.policy_delete(context, policy_id)
+        po.Policy.delete(context, policy_id)
 
     def store(self, context):
         '''Store the policy object into database table.'''
-        timestamp = timeutils.utcnow()
+        timestamp = timeutils.utcnow(True)
 
         values = {
             'name': self.name,
@@ -177,11 +182,11 @@ class Policy(object):
         if self.id is not None:
             self.updated_at = timestamp
             values['updated_at'] = timestamp
-            db_api.policy_update(context, self.id, values)
+            po.Policy.update(context, self.id, values)
         else:
             self.created_at = timestamp
             values['created_at'] = timestamp
-            policy = db_api.policy_create(context, values)
+            policy = po.Policy.create(context, values)
             self.id = policy.id
 
         return self.id
@@ -265,8 +270,8 @@ class Policy(object):
             'project': self.project,
             'domain': self.domain,
             'spec': self.spec,
-            'created_at': utils.format_time(self.created_at),
-            'updated_at': utils.format_time(self.updated_at),
+            'created_at': utils.isotime(self.created_at),
+            'updated_at': utils.isotime(self.updated_at),
             'data': self.data,
         }
         return pb_dict
@@ -284,8 +289,8 @@ class Policy(object):
             'user_domain_name': service_creds.get('user_domain_name')
         }
 
-        cred = db_api.cred_get(oslo_context.get_current(),
-                               cluster.user, cluster.project)
+        cred = co.Credential.get(oslo_context.get_current(),
+                                 cluster.user, cluster.project)
         if cred is None:
             raise exception.TrustNotFound(trustor=cluster.user)
         params['trust_id'] = cred.cred['openstack']['trust']

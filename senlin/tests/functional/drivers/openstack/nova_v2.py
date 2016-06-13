@@ -25,7 +25,7 @@ class NovaClient(base.DriverBase):
             "disk": 1,
             "OS-FLV-EXT-DATA:ephemeral": 0,
             "os-flavor-access:is_public": True,
-            "id": "1",
+            "id": "66a81d68-bf48-4af5-897b-a3bfef7279a8",
             "links": [],
             "name": "m1.tiny",
             "ram": 512,
@@ -177,5 +177,5 @@ class NovaClient(base.DriverBase):
     def server_metadata_update(self, server, metadata):
         return
 
-    def server_metadata_delete(self, server, key):
+    def server_metadata_delete(self, server, keys):
         return
