@@ -1,14 +1,14 @@
 # Danish translation senlin.
-# Copyright (C) 2014 senlin & nedenstående oversættere.
+# Copyright (C) 2016 senlin & nedenstående oversættere.
 # This file is distributed under the same license as the senlin package.
-# Joe Hansen (joedalton2@yahoo.dk), 2012, 2013, 2014.
+# Joe Hansen (joedalton2@yahoo.dk), 2012, 2013, 2014, 2016.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: senlin\n"
 "Report-Msgid-Bugs-To: senlin@packages.debian.org\n"
 "POT-Creation-Date: 2016-01-23 13:55+0000\n"
-"PO-Revision-Date: 2014-02-22 12:42+0000\n"
+"PO-Revision-Date: 2016-07-09 12:42+0000\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <debian-l10n-danish@lists.debian.org>\n"
 "Language: da\n"
@@ -25,18 +25,12 @@ msgstr "Opsæt en database for Senlin?"
 #. Type: boolean
 #. Description
 #: ../senlin-common.templates:2001
-#, fuzzy
-#| msgid ""
-#| "No database has been set up for senlin-registry or senlin-api to use. "
-#| "Before continuing, you should make sure you have the following "
-#| "information:"
 msgid ""
 "No database has been set up for Senlin to use. Before continuing, you should "
 "make sure you have the following information:"
 msgstr ""
-"Ingen database er blevet opsat som senlin-registry eller senlin-api kan "
-"bruge. Før du fortsætter, skal du sikre dig, at du har den følgende "
-"information:"
+"Ingen database er blevet opsat som Senlin kan bruge. Før du fortsætter, "
+"skal du sikre dig, at du har den følgende information:"
 
 #. Type: boolean
 #. Description
@@ -82,17 +76,12 @@ msgstr "Værtsnavn for godkendelsesserver:"
 #. Type: string
 #. Description
 #: ../senlin-common.templates:3001
-#, fuzzy
-#| msgid ""
-#| "Please specify the hostname of the authentication server for Senlin. "
-#| "Typically this is also the hostname of the OpenStack Identity Service "
-#| "(Keystone)."
 msgid ""
 "Please specify the hostname of the authentication server. Typically this is "
 "also the hostname of the OpenStack Identity Service (Keystone)."
 msgstr ""
-"Angiv venligst adressen for din godkendelsesserver for Senlin. Typisk er "
-"dette også adressen for din OpenStack Identity Service (Keystone)."
+"Angiv venligst adressen for godkendelsesserveren. Typisk er dette også "
+"adressen for din OpenStack Identity Service (Keystone)."
 
 #. Type: string
 #. Description
@@ -197,99 +186,3 @@ msgid "Please specify the password used to connect to the RabbitMQ server."
 msgstr ""
 "Angiv venligst adgangskoden brugt til at forbinde med RabbitMQ-serveren."
 
-#~ msgid "keystone"
-#~ msgstr "keystone"
-
-#~ msgid "caching"
-#~ msgstr "caching"
-
-#~ msgid "keystone+caching"
-#~ msgstr "keystone+caching"
-
-#~ msgid "cachemanagement"
-#~ msgstr "cachemanagement"
-
-#~ msgid "keystone+cachemanagement"
-#~ msgstr "keystone+cachemanagement"
-
-#~ msgid "Pipeline flavor:"
-#~ msgstr "Pipeline-variant:"
-
-#~ msgid "Please specify the flavor of the pipeline to be used by Senlin."
-#~ msgstr "Angiv venligst pipeline-varianten som skal bruges af Senlin."
-
-#~ msgid ""
-#~ "If you use the OpenStack Identity Service (Keystone), you might want to "
-#~ "select \"keystone\". If you don't use this service, you can safely choose "
-#~ "\"caching\" only."
-#~ msgstr ""
-#~ "Hvis du bruger OpenStack Identity Service (Keystone), så vil du måske "
-#~ "ønske at vælge »keystone«. Hvis du ikke bruger denne tjeneste, så kan du "
-#~ "nøjes med at vælge »caching«."
-
-#~ msgid "Register Senlin in the Keystone endpoint catalog?"
-#~ msgstr "Registrer Senlin i Keystones slutpunktskatalog?"
-
-#~ msgid ""
-#~ "Each OpenStack service (each API) should be registered in order to be "
-#~ "accessible. This is done using \"keystone service-create\" and \"keystone "
-#~ "endpoint-create\". This can be done automatically now."
-#~ msgstr ""
-#~ "Hver Openstacktjeneste (hver API) skal være registreret for at kunne "
-#~ "tilgås. Dette gøres med »keystone service-create« og »keystone endpoint-"
-#~ "create«. Dette kan gøres automatiks nu."
-
-#~ msgid ""
-#~ "Note that you will need to have an up and running Keystone server on "
-#~ "which to connect using the Keystone authentication token."
-#~ msgstr ""
-#~ "Bemærk at du skal have en op og kørende Keystoneserver, som du skal "
-#~ "forbinde til med Keystones godkendelsessymbol."
-
-#~ msgid "Keystone server IP address:"
-#~ msgstr "IP-adresse for Keystoneserver:"
-
-#~ msgid ""
-#~ "Please enter the IP address of the Keystone server, so that senlin-api "
-#~ "can contact Keystone to do the Senlin service and endpoint creation."
-#~ msgstr ""
-#~ "Indtast venligst IP-adressen for Keystoneserveren, så at senlin-api kan "
-#~ "kontakte Keystone for at udføre Senlintjenesten og slutpunktsoprettelse."
-
-#~ msgid "Keystone authentication token:"
-#~ msgstr "Godkendelsessymbol for Keystone:"
-
-#~ msgid ""
-#~ "To configure its endpoint in Keystone, senlin-api needs the Keystone "
-#~ "authentication token."
-#~ msgstr ""
-#~ "For at konfigurere dets slutpunkt i Keystone, kræver senlin-api Keystones "
-#~ "godkendelsessymbol."
-
-#~ msgid "Senlin endpoint IP address:"
-#~ msgstr "IP-adresse for Senlins slutpunkt:"
-
-#~ msgid "Please enter the IP address that will be used to contact Senlin."
-#~ msgstr ""
-#~ "Indtast venligst IP-adressen som vil blive brugt til at kontakte Senlin."
-
-#~ msgid ""
-#~ "This IP address should be accessible from the clients that will use this "
-#~ "service, so if you are installing a public cloud, this should be a public "
-#~ "IP address."
-#~ msgstr ""
-#~ "Denne IP-adresse skal være tilgængelig fra klienterne, som vil bruge "
-#~ "denne tjeneste, så hvis du installerer en offentlig sky, skal dette være "
-#~ "en offentlig IP-adresse."
-
-#~ msgid "Name of the region to register:"
-#~ msgstr "Navn på regionen der skal registreres:"
-
-#~ msgid ""
-#~ "OpenStack supports using availability zones, with each region "
-#~ "representing a location. Please enter the zone that you wish to use when "
-#~ "registering the endpoint."
-#~ msgstr ""
-#~ "OpenStack understøtter brug af tilgængelighedszoner, hvor hver region "
-#~ "repræsenterer et sted. Indtast venligst zonen du ønsker at bruge, når "
-#~ "slutpunktet registreres."

@@ -1,3 +1,9 @@
+senlin (2.0.0~b1-2) UNRELEASED; urgency=medium
+
+  * Updated Danish translation of the debconf templates (Closes: #830651).
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 11 Jul 2016 14:37:23 +0200
+
 senlin (2.0.0~b1-1) experimental; urgency=medium
 
   * New upstream release.
