@@ -14,11 +14,11 @@ import copy
 from tempest.lib import decorators
 
 from senlin.tests.tempest.api import base
-from senlin.tests.tempest.api import utils
 from senlin.tests.tempest.common import constants
+from senlin.tests.tempest.common import utils
 
 
-class TestNodeUpdateProfile(base.BaseSenlinTest):
+class TestNodeUpdateProfile(base.BaseSenlinAPITest):
 
     def setUp(self):
         super(TestNodeUpdateProfile, self).setUp()
@@ -57,4 +57,4 @@ class TestNodeUpdateProfile(base.BaseSenlinTest):
 
         # Wait for node update to be done before moving on
         action_id = res['location'].split('/actions/')[1]
-        self.wait_for_status('actions', action_id, 'SUCCEEDED')
+        self.client.wait_for_status('actions', action_id, 'SUCCEEDED')

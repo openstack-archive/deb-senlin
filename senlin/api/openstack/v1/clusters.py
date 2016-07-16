@@ -15,7 +15,6 @@
 Cluster endpoint for Senlin v1 ReST API.
 """
 
-from oslo_config import cfg
 import six
 from webob import exc
 
@@ -38,8 +37,7 @@ class ClusterData(object):
         self.desired_capacity = data.get(consts.CLUSTER_DESIRED_CAPACITY, None)
         self.min_size = data.get(consts.CLUSTER_MIN_SIZE, None)
         self.max_size = data.get(consts.CLUSTER_MAX_SIZE, None)
-        self.timeout = data.get(consts.CLUSTER_TIMEOUT,
-                                cfg.CONF.default_action_timeout)
+        self.timeout = data.get(consts.CLUSTER_TIMEOUT, None)
 
     def _enforce_data_types(self):
         if self.desired_capacity is not None:
@@ -252,6 +250,8 @@ class ClusterController(wsgi.Controller):
                                              min_step)
         if strict is not None:
             strict = utils.parse_bool_param(consts.ADJUSTMENT_STRICT, strict)
+        else:
+            strict = True
 
         result = self.rpc_client.cluster_resize(req.context, cluster_id,
                                                 adj_type, number, min_size,
@@ -363,6 +363,15 @@ class ClusterController(wsgi.Controller):
         location = {'location': '/actions/%s' % res['action']}
         res.update(location)
         return res
+
+    @wsgi.Controller.api_version('1.2')
+    @util.policy_enforce
+    def collect(self, req, cluster_id, path):
+        """Aggregate attribute values across a cluster."""
+        if path.strip() == '':
+            raise exc.HTTPBadRequest(_("Required path attribute is missing."))
+
+        return self.rpc_client.cluster_collect(req.context, cluster_id, path)
 
     @util.policy_enforce
     def delete(self, req, cluster_id):

@@ -294,6 +294,10 @@ def event_get_all_by_cluster(context, cluster_id, limit=None, marker=None,
                                          project_safe=project_safe)
 
 
+def event_prune(context, cluster_id, project_safe=True):
+    return IMPL.event_prune(context, cluster_id, project_safe=project_safe)
+
+
 # Actions
 def action_create(context, values):
     return IMPL.action_create(context, values)
@@ -330,6 +334,10 @@ def action_get_all(context, filters=None, limit=None, marker=None, sort=None,
 
 def action_check_status(context, action_id, timestamp):
     return IMPL.action_check_status(context, action_id, timestamp)
+
+
+def action_delete_by_target(context, target, exceptions=None):
+    return IMPL.action_check_status(context, target, exceptions=exceptions)
 
 
 def dependency_add(context, depended, dependent):

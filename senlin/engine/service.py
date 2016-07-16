@@ -422,6 +422,9 @@ class EngineService(service.Service):
             changed = True
         if changed:
             profile.store(context)
+        else:
+            msg = _("No property needs an update.")
+            raise exception.BadRequest(msg=msg)
 
         LOG.info(_LI("Profile '%(id)s' is updated."), {'id': profile_id})
         return profile.to_dict()
@@ -762,6 +765,8 @@ class EngineService(service.Service):
                                              allow_negative=True)
         if timeout is not None:
             timeout = utils.parse_int_param(consts.CLUSTER_TIMEOUT, timeout)
+        else:
+            timeout = cfg.CONF.default_action_timeout
 
         res = su.check_size_params(None, init_size, min_size, max_size, True)
         if res:
@@ -850,6 +855,10 @@ class EngineService(service.Service):
 
         if name is not None:
             inputs['name'] = name
+
+        if not inputs:
+            msg = _("No property needs an update.")
+            raise exception.BadRequest(msg=msg)
 
         kwargs = {
             'name': 'cluster_update_%s' % cluster.id[:8],
@@ -1060,29 +1069,25 @@ class EngineService(service.Service):
                        strict=True):
         """Adjust cluster size parameters.
 
-        :param identity: cluster dentity which can be name, id or short ID;
-        :param adj_type: optional; if specified, must be one of the strings
-                         defined in consts.ADJUSTMENT_TYPES;
+        :param identity: cluster identity which can be cluster name, UUID or
+                         short ID.
+        :param adj_type: type of adjustment. If specified, must be one of the
+                         strings defined in `consts.ADJUSTMENT_TYPES`.
         :param number: number for adjustment. It is interpreted as the new
                        desired_capacity of the cluster if `adj_type` is set
                        to `EXACT_CAPACITY`; it is interpreted as the relative
                        number of nodes to add/remove when `adj_type` is set
                        to `CHANGE_IN_CAPACITY`; it is treated as a percentage
                        when `adj_type` is set to `CHANGE_IN_PERCENTAGE`.
-                       This parameter is optional.
         :param min_size: new lower bound of the cluster size, if specified.
-                         This parameter is optional.
-        :param max_size: new upper bound of the cluster size, if specified;
+        :param max_size: new upper bound of the cluster size, if specified.
                          A value of negative means no upper limit is imposed.
-                         This parameter is optional.
-        :param min_step: optional. It specifies the number of nodes to be
-                         added or removed when `adj_type` is set to value
-                         `CHANGE_IN_PERCENTAGE` and the number calculated is
-                         less than 1 or so.
-        :param strict: optional boolean value. It specifies whether Senlin
-                       should try a best-effort style resizing or just
-                       reject the request when scaling beyond its current
-                       size constraint.
+        :param min_step: the number of nodes to be added or removed when
+                         `adj_type` is set to value `CHANGE_IN_PERCENTAGE`
+                         and the number calculated is less than 1.
+        :param strict: whether Senlin should try a best-effort style resizing
+                       or just rejects the request when scaling beyond its
+                       current size constraint.
 
         :return: A dict containing the ID of an action fired.
         """
@@ -1253,6 +1258,34 @@ class EngineService(service.Service):
         return {'action': action_id}
 
     @request_context
+    def cluster_collect(self, context, identity, path, project_safe=True):
+        """Collect a certain attribute across a cluster.
+
+        :param context: An instance of the request context.
+        :param identity: The UUID, name or short-id of a cluster.
+        :param path: A JSONPath-alike string containing path for a particular
+                     attribute to aggregate.
+        :return: A list containing values of attribute collected from all
+                 nodes.
+        """
+        # validate 'path' string and return a parser,
+        # The function may raise a BadRequest exception.
+        parser = utils.get_path_parser(path)
+        cluster = self.cluster_find(context, identity)
+        nodes = node_mod.Node.load_all(context, cluster_id=cluster.id,
+                                       project_safe=project_safe)
+        attrs = []
+        for node in nodes:
+            info = node.to_dict()
+            if node.physical_id:
+                info['details'] = node.get_details(context)
+            matches = [m.value for m in parser.find(info)]
+            if matches:
+                attrs.append({'id': node.id, 'value': matches[0]})
+
+        return {'cluster_attributes': attrs}
+
+    @request_context
     def cluster_check(self, context, identity, params=None):
         """Check the status of a cluster.
 
@@ -1260,7 +1293,7 @@ class EngineService(service.Service):
         :param identity: The UUID, name or short-id of a cluster.
         :param params: A dictionary containing additional parameters for
                        the check operation.
-        :return: A dictionary containg the ID of the action triggered.
+        :return: A dictionary containing the ID of the action triggered.
         """
         LOG.info(_LI("Checking Cluster '%(cluster)s'."),
                  {'cluster': identity})
@@ -1287,7 +1320,7 @@ class EngineService(service.Service):
         :param identity: The UUID, name or short-id of a cluster.
         :param params: A dictionary containing additional parameters for
                        the check operation.
-        :return: A dictionary containg the ID of the action triggered.
+        :return: A dictionary containing the ID of the action triggered.
         """
         LOG.info(_LI("Recovering cluster '%s'."), identity)
         db_cluster = self.cluster_find(context, identity)
@@ -1436,6 +1469,13 @@ class EngineService(service.Service):
             'domain': context.domain,
         }
 
+        # TODO(xuhaiwei) Handle the case 'host_cluster' is not None
+        if node_profile.type == 'container.docker':
+            host_node = node_profile.properties.get('host_node', None)
+            if host_node:
+                host = self.node_get(context, host_node, project_safe=True)
+                kwargs['host'] = host
+
         node = node_mod.Node(name, node_profile.id, cluster_id, context,
                              **kwargs)
         node.store(context)
@@ -1522,7 +1562,7 @@ class EngineService(service.Service):
         if metadata is not None and metadata != db_node.metadata:
             inputs['metadata'] = metadata
 
-        if inputs == {}:
+        if not inputs:
             msg = _("No property needs an update.")
             raise exception.BadRequest(msg=msg)
 

@@ -21,7 +21,7 @@ RPC_ATTRS = (
     'senlin-engine',
     'engine-dispatcher',
     'engine-health-mgr',
-    '1.0',
+    '1.1',
 )
 
 RPC_PARAMS = (
@@ -225,3 +225,9 @@ EVENT_LEVELS = {
     'INFO': logging.INFO,
     'DEBUG': logging.DEBUG,
 }
+
+RECOVER_OPERATIONS = (
+    RECOVER_RECREATE, RECOVER_REBUILD,
+) = (
+    'RECREATE', 'REBUILD',
+)

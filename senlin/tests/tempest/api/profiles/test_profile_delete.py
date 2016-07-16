@@ -13,10 +13,10 @@
 from tempest.lib import decorators
 
 from senlin.tests.tempest.api import base
-from senlin.tests.tempest.api import utils
+from senlin.tests.tempest.common import utils
 
 
-class TestProfileDelete(base.BaseSenlinTest):
+class TestProfileDelete(base.BaseSenlinAPITest):
 
     def setUp(self):
         super(TestProfileDelete, self).setUp()
@@ -28,3 +28,4 @@ class TestProfileDelete(base.BaseSenlinTest):
         res = self.client.delete_obj('profiles', self.profile_id)
         self.assertEqual(204, res['status'])
         self.assertIsNone(res['body'])
+        self.assertEqual('0', res['content-length'])

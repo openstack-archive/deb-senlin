@@ -13,10 +13,10 @@
 from tempest.lib import decorators
 
 from senlin.tests.tempest.api import base
-from senlin.tests.tempest.api import utils
+from senlin.tests.tempest.common import utils
 
 
-class TestWebhookTrigger(base.BaseSenlinTest):
+class TestWebhookTrigger(base.BaseSenlinAPITest):
 
     def setUp(self):
         super(TestWebhookTrigger, self).setUp()
@@ -27,7 +27,7 @@ class TestWebhookTrigger(base.BaseSenlinTest):
         self.addCleanup(utils.delete_a_cluster, self, cluster_id)
 
         params = {'max_size': 2}
-        self.receiver_id = utils.create_a_receiver(self.client, cluster_id,
+        self.receiver_id = utils.create_a_receiver(self, cluster_id,
                                                    'CLUSTER_RESIZE',
                                                    params=params)
         self.addCleanup(self.client.delete_obj, 'receivers', self.receiver_id)
@@ -45,4 +45,4 @@ class TestWebhookTrigger(base.BaseSenlinTest):
 
         # Trigger webhook action
         action_id = res['location'].split('/actions/')[1]
-        self.wait_for_status('actions', action_id, 'SUCCEEDED')
+        self.client.wait_for_status('actions', action_id, 'SUCCEEDED')

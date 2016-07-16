@@ -62,6 +62,7 @@ class DummyProfile(pb.Profile):
             'third key',
         ),
     }
+    OPERATIONS = {}
 
     def __init__(self, name, spec, **kwargs):
         super(DummyProfile, self).__init__(name, spec, **kwargs)
@@ -432,7 +433,6 @@ class TestProfileBase(base.SenlinTestCase):
         expected = {
             'context': {
                 'description': 'context data',
-                'readonly': False,
                 'required': False,
                 'updatable': False,
                 'type': 'Map'
@@ -440,21 +440,18 @@ class TestProfileBase(base.SenlinTestCase):
             'key1': {
                 'default': 'value1',
                 'description': 'first key',
-                'readonly': False,
                 'required': False,
                 'updatable': True,
                 'type': 'String',
             },
             'key2': {
                 'description': 'second key',
-                'readonly': False,
                 'required': True,
                 'updatable': True,
                 'type': 'Integer'
             },
             'key3': {
                 'description': 'third key',
-                'readonly': False,
                 'required': False,
                 'updatable': False,
                 'type': 'String'
@@ -605,23 +602,25 @@ class TestProfileBase(base.SenlinTestCase):
     def test_interface_methods(self):
         profile = self._create_profile('test-profile')
 
-        self.assertEqual(NotImplemented, profile.do_create(mock.Mock()))
-        self.assertEqual(NotImplemented, profile.do_delete(mock.Mock()))
-        self.assertEqual(NotImplemented,
-                         profile.do_update(mock.Mock(), mock.Mock()))
-        self.assertEqual(NotImplemented, profile.do_check(mock.Mock()))
-        self.assertEqual(NotImplemented, profile.do_get_details(mock.Mock()))
-        self.assertEqual(True,
-                         profile.do_join(mock.Mock(), mock.Mock()))
+        self.assertRaises(NotImplementedError, profile.do_create, mock.Mock())
+        self.assertRaises(NotImplementedError, profile.do_delete, mock.Mock())
+        self.assertEqual(True, profile.do_update(mock.Mock(), mock.Mock()))
+        self.assertEqual(True, profile.do_check(mock.Mock()))
+        self.assertEqual({}, profile.do_get_details(mock.Mock()))
+        self.assertEqual(True, profile.do_join(mock.Mock(), mock.Mock()))
         self.assertEqual(True, profile.do_leave(mock.Mock()))
-        self.assertEqual(NotImplemented, profile.do_rebuild(mock.Mock()))
+        self.assertEqual(True, profile.do_rebuild(mock.Mock()))
 
     def test_do_recover_default(self):
         profile = self._create_profile('test-profile')
-        self.assertEqual(NotImplemented, profile.do_recover(mock.Mock()))
-        self.assertEqual(NotImplemented,
+        self.patchobject(profile, 'do_create', return_value=True)
+        self.patchobject(profile, 'do_delete', return_value=True)
+
+        self.assertEqual(True, profile.do_recover(mock.Mock()))
+
+        self.assertEqual(True,
                          profile.do_recover(mock.Mock(), foo='bar'))
-        self.assertEqual(NotImplemented,
+        self.assertEqual(False,
                          profile.do_recover(mock.Mock(), operation='bar'))
 
     def test_do_recover_with_recreate_succeeded(self):
@@ -636,8 +635,9 @@ class TestProfileBase(base.SenlinTestCase):
         profile = self._create_profile('test-profile')
 
         # Fail because do_delete not implemented
-        res = profile.do_recover(mock.Mock(), operation='RECREATE')
-        self.assertEqual(NotImplemented, res)
+        self.assertRaises(NotImplementedError,
+                          profile.do_recover,
+                          mock.Mock(), operation='RECREATE')
 
         # Failed in do_delete
         self.patchobject(profile, 'do_delete', return_value=False)
@@ -650,7 +650,7 @@ class TestProfileBase(base.SenlinTestCase):
         # Failed because do_create is not implemented (weird case)
         self.patchobject(profile, 'do_delete', return_value=True)
         res = profile.do_recover(mock.Mock(), operation='RECREATE')
-        self.assertEqual(NotImplemented, res)
+        self.assertEqual(False, res)
 
         # Failed in do_create
         self.patchobject(profile, 'do_delete', return_value=True)
@@ -676,7 +676,7 @@ class TestProfileBase(base.SenlinTestCase):
             'domain': profile.domain,
             'spec': profile.spec,
             'metadata': profile.metadata,
-            'created_at': common_utils.format_time(profile.created_at),
+            'created_at': common_utils.isotime(profile.created_at),
             'updated_at': None,
         }
 

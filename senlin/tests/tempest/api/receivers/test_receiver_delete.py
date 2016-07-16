@@ -13,10 +13,10 @@
 from tempest.lib import decorators
 
 from senlin.tests.tempest.api import base
-from senlin.tests.tempest.api import utils
+from senlin.tests.tempest.common import utils
 
 
-class TestReceiverDelete(base.BaseSenlinTest):
+class TestReceiverDelete(base.BaseSenlinAPITest):
 
     def setUp(self):
         super(TestReceiverDelete, self).setUp()
@@ -26,7 +26,7 @@ class TestReceiverDelete(base.BaseSenlinTest):
         cluster_id = utils.create_a_cluster(self, profile_id)
         self.addCleanup(utils.delete_a_cluster, self, cluster_id)
 
-        self.receiver_id = utils.create_a_receiver(self.client, cluster_id,
+        self.receiver_id = utils.create_a_receiver(self, cluster_id,
                                                    'CLUSTER_RESIZE')
 
     @decorators.idempotent_id('c67cf6c3-2339-4f10-9631-fb7e9f47170f')
@@ -35,3 +35,4 @@ class TestReceiverDelete(base.BaseSenlinTest):
         res = self.client.delete_obj('receivers', self.receiver_id)
         self.assertEqual(204, res['status'])
         self.assertIsNone(res['body'])
+        self.assertEqual('0', res['content-length'])

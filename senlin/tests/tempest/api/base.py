@@ -12,62 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
-
 from oslo_log import log
 from tempest import config
-from tempest.lib import exceptions
-from tempest import test
 
+from senlin.tests.tempest import base
 from senlin.tests.tempest.common import clustering_client
 
 CONF = config.CONF
 lOG = log.getLogger(__name__)
 
 
-class BaseSenlinTest(test.BaseTestCase):
+class BaseSenlinAPITest(base.BaseSenlinTest):
 
-    credentials = ['primary']
-
-    @classmethod
-    def skip_checks(cls):
-        super(BaseSenlinTest, cls).skip_checks()
-        if not CONF.service_available.senlin:
-            skip_msg = 'Senlin is disabled'
-            raise cls.skipException(skip_msg)
+    network_resources = {
+        'network': False,
+        'router': False,
+        'subnet': False,
+        'dhcp': False,
+    }
 
     @classmethod
     def setup_clients(cls):
-        super(BaseSenlinTest, cls).setup_clients()
+        super(BaseSenlinAPITest, cls).setup_clients()
         cls.client = clustering_client.ClusteringAPIClient(
             cls.os.auth_provider,
             CONF.clustering.catalog_type,
             CONF.identity.region,
             **cls.os.default_params_with_timeout_values
         )
-
-    @classmethod
-    def wait_for_status(cls, obj_type, obj_id, expected_status, timeout=None):
-        if timeout is None:
-            timeout = CONF.clustering.wait_timeout
-
-        while timeout > 0:
-            res = cls.client.get_obj(obj_type, obj_id)
-            if res['body']['status'] == expected_status:
-                return res
-            time.sleep(5)
-            timeout -= 5
-        raise Exception('Timeout waiting for status.')
-
-    @classmethod
-    def wait_for_delete(cls, obj_type, obj_id, timeout=None):
-        if timeout is None:
-            timeout = CONF.clustering.wait_timeout
-        while timeout > 0:
-            try:
-                cls.client.get_obj(obj_type, obj_id)
-            except exceptions.NotFound:
-                return
-            time.sleep(5)
-            timeout -= 5
-        raise Exception('Timeout waiting for deletion.')

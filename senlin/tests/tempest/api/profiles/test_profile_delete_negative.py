@@ -15,13 +15,13 @@ from tempest.lib import exceptions
 from tempest import test
 
 from senlin.tests.tempest.api import base
-from senlin.tests.tempest.api import utils
+from senlin.tests.tempest.common import utils
 
 
-class TestProfileDeleteNegative(base.BaseSenlinTest):
+class TestProfileDeleteNegativeConflict(base.BaseSenlinAPITest):
 
     def setUp(self):
-        super(TestProfileDeleteNegative, self).setUp()
+        super(TestProfileDeleteNegativeConflict, self).setUp()
         self.profile_id = utils.create_a_profile(self)
         self.addCleanup(utils.delete_a_profile, self, self.profile_id)
         cluster_id = utils.create_a_cluster(self, self.profile_id)
@@ -34,3 +34,32 @@ class TestProfileDeleteNegative(base.BaseSenlinTest):
         self.assertRaises(exceptions.Conflict,
                           self.client.delete_obj,
                           'profiles', self.profile_id)
+
+
+class TestProfileDeleteNegativeNotFound(base.BaseSenlinAPITest):
+
+    @test.attr(type=['negative'])
+    @decorators.idempotent_id('b6e7911d-5f65-4ec6-a08b-b88809fe2b9e')
+    def test_profile_delete_not_found(self):
+        # Verify notfound exception(404) is raised.
+        self.assertRaises(exceptions.NotFound,
+                          self.client.delete_obj,
+                          'profiles', 'b6e7911d-5f65-4ec6-a08b-b88809fe2b9e')
+
+
+class TestProfileDeleteNegativeBadRequest(base.BaseSenlinAPITest):
+
+    def setUp(self):
+        super(TestProfileDeleteNegativeBadRequest, self).setUp()
+        self.profile_id1 = utils.create_a_profile(self, name='p-01')
+        self.addCleanup(utils.delete_a_profile, self, self.profile_id1)
+        self.profile_id2 = utils.create_a_profile(self, name='p-01')
+        self.addCleanup(utils.delete_a_profile, self, self.profile_id2)
+
+    @test.attr(type=['negative'])
+    @decorators.idempotent_id('b6e7911d-5f65-4ec6-a08b-b88809fe2b9e')
+    def test_profile_delete_multiple_choice(self):
+        # Verify badrequest exception(400) is raised.
+        self.assertRaises(exceptions.BadRequest,
+                          self.client.delete_obj,
+                          'profiles', 'p-01')

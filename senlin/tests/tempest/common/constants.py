@@ -24,6 +24,37 @@ spec_nova_server = {
     }
 }
 
+
+spec_heat_stack = {
+    "type": "os.heat.stack",
+    "version": "1.0",
+    "properties": {
+        "template": {
+            "heat_template_version": "2014-10-16",
+            "parameters": {
+                "str_length": {
+                    "type": "number",
+                    "default": 64
+                }
+            },
+            "resources": {
+                "random": {
+                    "type": "OS::Heat::RandomString",
+                    "properties": {
+                        "length": {"get_param": "str_length"}
+                    }
+                }
+            },
+            "outputs": {
+                "result": {
+                    "value": {"get_attr": ["random", "value"]}
+                }
+            }
+        }
+    }
+}
+
+
 spec_scaling_policy = {
     "type": "senlin.policy.scaling",
     "version": "1.0",
@@ -34,6 +65,40 @@ spec_scaling_policy = {
             "number": 1,
             "min_step": 1,
             "best_effort": True
+        }
+    }
+}
+
+
+spec_lb_policy = {
+    "type": "senlin.policy.loadbalance",
+    "version": "1.0",
+    "properties": {
+        "pool": {
+            "protocol": "HTTP",
+            "protocol_port": 80,
+            "subnet": "private-subnet",
+            "lb_method": "ROUND_ROBIN",
+            "session_persistence": {
+                "type": "SOURCE_IP",
+                "cookie_name": "test-cookie"
+            }
+        },
+        "vip": {
+            "subnet": "private-subnet",
+            "connection_limit": 100,
+            "protocol": "HTTP",
+            "protocol_port": 80
+        },
+        "health_monitor": {
+            "type": "HTTP",
+            "delay": "1",
+            "timeout": 1,
+            "max_retries": 5,
+            "admin_state_up": True,
+            "http_method": "GET",
+            "url_path": "/index.html",
+            "expected_codes": "200,201,202"
         }
     }
 }

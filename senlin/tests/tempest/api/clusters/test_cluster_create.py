@@ -13,10 +13,10 @@
 from tempest.lib import decorators
 
 from senlin.tests.tempest.api import base
-from senlin.tests.tempest.api import utils
+from senlin.tests.tempest.common import utils
 
 
-class TestClusterCreate(base.BaseSenlinTest):
+class TestClusterCreate(base.BaseSenlinAPITest):
 
     def setUp(self):
         super(TestClusterCreate, self).setUp()
@@ -42,7 +42,7 @@ class TestClusterCreate(base.BaseSenlinTest):
                 'max_size': max_size,
                 'timeout': timeout,
                 'metadata': {'k1': 'v1'},
-                'name': 'test-cluster'
+                'name': name
             }
         }
         res = self.client.create_obj('clusters', params)
@@ -65,6 +65,6 @@ class TestClusterCreate(base.BaseSenlinTest):
 
         # Wait cluster to be active before moving on
         action_id = res['location'].split('/actions/')[1]
-        self.wait_for_status('actions', action_id, 'SUCCEEDED')
+        self.client.wait_for_status('actions', action_id, 'SUCCEEDED')
 
         self.addCleanup(utils.delete_a_cluster, self, cluster['id'])

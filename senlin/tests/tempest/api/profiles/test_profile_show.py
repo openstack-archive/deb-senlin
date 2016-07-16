@@ -13,10 +13,10 @@
 from tempest.lib import decorators
 
 from senlin.tests.tempest.api import base
-from senlin.tests.tempest.api import utils
+from senlin.tests.tempest.common import utils
 
 
-class TestProfileShow(base.BaseSenlinTest):
+class TestProfileShow(base.BaseSenlinAPITest):
 
     def setUp(self):
         super(TestProfileShow, self).setUp()
