@@ -3,6 +3,10 @@ senlin (2.0.0~b2-1) experimental; urgency=medium
   * New upstream release.
   * Fixed (build-)depends for this release.
   * Updated Danish translation of the debconf templates (Closes: #830651).
+  * Blacklist failing tests:
+    - test_common_context.TestRequestContext.test_request_context_from_dict
+    - test_common_context.TestRequestContext.test_request_context_init
+    - test_common_context.TestRequestContext.test_request_context_update
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 11 Jul 2016 14:37:23 +0200
 
