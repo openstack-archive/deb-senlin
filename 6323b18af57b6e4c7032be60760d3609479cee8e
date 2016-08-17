@@ -1,0 +1,12 @@
+Code-Review+2: Ethan Lynn <xuanlangjian@gmail.com>
+Code-Review+1: Rahul U Nair <rahulunair@gmail.com>
+Code-Review+2: Xinhui Li <lxinhui@vmware.com>
+Code-Review+1: zzxwill <zzxwill@gmail.com>
+Code-Review+2: Qiming Teng <tengqim@cn.ibm.com>
+Workflow+1: Qiming Teng <tengqim@cn.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 10 Aug 2016 03:54:09 +0000
+Reviewed-on: https://review.openstack.org/348110
+Project: openstack/deb-senlin
+Branch: refs/heads/master
