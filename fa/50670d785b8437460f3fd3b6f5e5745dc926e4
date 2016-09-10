@@ -1,0 +1,8 @@
+Code-Review+2: Qiming Teng <tengqim@cn.ibm.com>
+Workflow+1: Qiming Teng <tengqim@cn.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 30 Apr 2016 11:35:55 +0000
+Reviewed-on: https://review.openstack.org/311354
+Project: openstack/deb-senlin
+Branch: refs/heads/stable/mitaka
