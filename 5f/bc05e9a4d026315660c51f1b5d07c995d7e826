@@ -1,0 +1,9 @@
+Code-Review+2: Yanyan Hu <yanyanhu@cn.ibm.com>
+Code-Review+2: Qiming Teng <tengqim@cn.ibm.com>
+Workflow+1: Qiming Teng <tengqim@cn.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 02 Sep 2016 10:39:00 +0000
+Reviewed-on: https://review.openstack.org/364618
+Project: openstack/deb-senlin
+Branch: refs/heads/master

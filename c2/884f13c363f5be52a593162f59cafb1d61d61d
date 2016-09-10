@@ -1,0 +1,10 @@
+Code-Review+1: Shan Guo <guoshan@awcloud.com>
+Code-Review+2: Yanyan Hu <yanyanhu@cn.ibm.com>
+Code-Review+2: Qiming Teng <tengqim@cn.ibm.com>
+Workflow+1: Qiming Teng <tengqim@cn.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 29 Aug 2016 02:27:27 +0000
+Reviewed-on: https://review.openstack.org/359177
+Project: openstack/deb-senlin
+Branch: refs/heads/master
