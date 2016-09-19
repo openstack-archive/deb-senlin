@@ -20,46 +20,15 @@ from oslo_utils import encodeutils
 from six.moves import http_client
 import webob.dec
 
-from senlin.api.common import version_request as vr
-
-
-# NOTE: A version change is required when you make any change to the API. This
-# includes any semantic changes which may not affect the input or output
-# formats or even originate in the API code layer.
-#
-# The minimum and maximum versions of the API supported, where the default api
-# version request is defined to be the minimum version supported.
-_MIN_API_VERSION = "1.0"
-_MAX_API_VERSION = "1.2"
-DEFAULT_API_VERSION = _MIN_API_VERSION
-
-
-# min and max versions declared as functions so we can mock them for unittests.
-# Do not use the constants directly anywhere else.
-def min_api_version():
-    return vr.APIVersionRequest(_MIN_API_VERSION)
-
-
-def max_api_version():
-    return vr.APIVersionRequest(_MAX_API_VERSION)
-
-
-def is_supported(req, min_version=_MIN_API_VERSION,
-                 max_version=_MAX_API_VERSION):
-    """Check if API request version satisfies version restrictions.
-
-    :param req: request object
-    :param min_version: minimal version of API needed.
-    :param max_version: maximum version of API needed.
-    :returns: True if request satisfies minimal and maximum API version
-             requirements. False in other case.
-    """
-    return (vr.APIVersionRequest(max_version) >= req.version_request >=
-            vr.APIVersionRequest(min_version))
+from senlin.api.openstack.v1 import version as v1_controller
 
 
 class Controller(object):
     """A controller that produces information on the senlin API versions."""
+
+    Controllers = {
+        '1.0': v1_controller.VersionController,
+    }
 
     def __init__(self, conf):
         self.conf = conf
@@ -67,28 +36,12 @@ class Controller(object):
     @webob.dec.wsgify
     def __call__(self, req):
         """Respond to a request for all OpenStack API versions."""
-        version_objs = [
-            {
-                "id": "1.0",
-                "status": "CURRENT",
-                "updated": "2016-01-18T00:00:00Z",
-                "media-types": [
-                    {
-                        "base": "application/json",
-                        "type": "application/vnd.openstack.clustering-v1+json"
-                    }
-                ],
-                "links": [
-                    {
-                        "rel": "self",
-                        "href": "/v1/"
-                    }
-                ],
-                "min_version": _MIN_API_VERSION,
-                "max_version": _MAX_API_VERSION,
-            }]
 
-        body = jsonutils.dumps(dict(versions=version_objs))
+        versions = []
+        for ver, vc in self.Controllers.items():
+            versions.append(vc.version_info())
+
+        body = jsonutils.dumps(dict(versions=versions))
 
         response = webob.Response(request=req,
                                   status=http_client.MULTIPLE_CHOICES,
@@ -96,3 +49,11 @@ class Controller(object):
         response.body = encodeutils.safe_encode(body)
 
         return response
+
+    def get_controller(self, version):
+        """Return the version specific controller.
+
+        :param version: The version string for mapping.
+        :returns: A version controller instance or ``None``.
+        """
+        return self.Controllers.get(version, None)

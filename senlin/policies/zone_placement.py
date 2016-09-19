@@ -19,11 +19,12 @@ http://docs.openstack.org/developer/senlin/developer/policies/zone_v1.html
 
 import math
 import operator
+
 from oslo_log import log as logging
 
 from senlin.common import consts
-from senlin.common.i18n import _
-from senlin.common.i18n import _LE
+from senlin.common import exception as exc
+from senlin.common.i18n import _, _LE
 from senlin.common import scaleutils
 from senlin.common import schema
 from senlin.drivers import base as driver
@@ -45,6 +46,7 @@ class ZonePlacementPolicy(base.Policy):
         ('BEFORE', consts.CLUSTER_SCALE_OUT),
         ('BEFORE', consts.CLUSTER_SCALE_IN),
         ('BEFORE', consts.CLUSTER_RESIZE),
+        ('BEFORE', consts.NODE_CREATE),
     ]
 
     PROFILE_TYPE = [
@@ -89,19 +91,37 @@ class ZonePlacementPolicy(base.Policy):
         self.zones = dict((z[self.ZONE_NAME], z[self.ZONE_WEIGHT])
                           for z in self.properties.get(self.ZONES))
 
-    def _nova(self, obj):
+    def _nova(self, user, project):
         """Construct nova client based on object.
 
-        :param obj: Object for which the client is created. It is expected to
-                    be None when retrieving an existing client. When creating
-                    a client, it contains the user and project to be used.
+        :param user: The ID of the requesting user.
+        :param project: The ID of the requesting project.
+        :returns: A reference to the nova client.
         """
         if self._novaclient is not None:
             return self._novaclient
 
-        params = self._build_conn_params(obj)
+        params = self._build_conn_params(user, project)
         self._novaclient = driver.SenlinDriver().compute(params)
         return self._novaclient
+
+    def validate(self, context, validate_props=False):
+        super(ZonePlacementPolicy, self).validate(context, validate_props)
+
+        if not validate_props:
+            return True
+
+        nc = self._nova(context.user, context.project)
+        input_azs = sorted(self.zones.keys())
+        valid_azs = nc.validate_azs(input_azs)
+        invalid_azs = sorted(set(input_azs) - set(valid_azs))
+        if invalid_azs:
+            msg = _("The specified %(key)s '%(value)s' could not be "
+                    "found.") % {'key': self.ZONE_NAME,
+                                 'value': list(invalid_azs)}
+            raise exc.InvalidSpec(message=msg)
+
+        return True
 
     def _create_plan(self, current, zones, count, expand):
         """Compute a placement plan based on the weights of AZs.
@@ -164,6 +184,13 @@ class ZonePlacementPolicy(base.Policy):
                  to create; 2) negative - number of nodes to delete; 3) 0 -
                  something wrong happened, and the policy check failed.
         """
+        if action.action == consts.NODE_CREATE:
+            # skip the policy if availability zone is specified in profile
+            profile = action.node.rt['profile']
+            if profile.properties[profile.AVAILABILITY_ZONE]:
+                return 0
+            return 1
+
         if action.action == consts.CLUSTER_RESIZE:
             if action.data.get('deletion', None):
                 return -action.data['deletion']['count']
@@ -214,7 +241,7 @@ class ZonePlacementPolicy(base.Policy):
 
         cluster = cm.Cluster.load(action.context, cluster_id)
 
-        nc = self._nova(cluster)
+        nc = self._nova(cluster.user, cluster.project)
         zones_good = nc.validate_azs(self.zones.keys())
         if len(zones_good) == 0:
             action.data['status'] = base.CHECK_ERROR

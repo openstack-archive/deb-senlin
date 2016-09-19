@@ -151,16 +151,17 @@ class JSONRequestDeserializerTest(base.SenlinTestCase):
         self.assertEqual(expected, actual)
 
     def test_from_json_exceeds_max_json_mb(self):
-        cfg.CONF.set_override('max_json_body_size', 10, enforce_type=True)
-        body = jsonutils.dumps(['a'] * cfg.CONF.max_json_body_size)
-        self.assertGreater(len(body), cfg.CONF.max_json_body_size)
+        cfg.CONF.set_override('max_json_body_size', 10, group='senlin_api',
+                              enforce_type=True)
+        body = jsonutils.dumps(['a'] * cfg.CONF.senlin_api.max_json_body_size)
+        self.assertGreater(len(body), cfg.CONF.senlin_api.max_json_body_size)
         obj = serializers.JSONRequestDeserializer()
         error = self.assertRaises(exception.RequestLimitExceeded,
                                   obj.from_json,
                                   body)
         msg = ('Request limit exceeded: JSON body size '
                '(%s bytes) exceeds maximum allowed size (%s bytes).'
-               ) % (len(body), cfg.CONF.max_json_body_size)
+               ) % (len(body), cfg.CONF.senlin_api.max_json_body_size)
         self.assertEqual(msg, six.text_type(error))
 
 
@@ -192,8 +193,8 @@ class JSONResponseSerializerTest(base.SenlinTestCase):
         response = webob.Response()
         serializers.JSONResponseSerializer().default(response, fixture)
         self.assertEqual(200, response.status_int)
-        content_types = filter(lambda h: h[0] == 'Content-Type',
-                               response.headerlist)
+        content_types = [h for h in response.headerlist
+                         if h[0] == 'Content-Type']
         # NOTE: filter returns a iterator in python 3.
         types = [t for t in content_types]
         self.assertEqual(1, len(types))

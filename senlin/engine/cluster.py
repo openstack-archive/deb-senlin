@@ -49,7 +49,7 @@ class Cluster(object):
 
     def __init__(self, name, desired_capacity, profile_id,
                  context=None, **kwargs):
-        '''Intialize a cluster object.
+        '''Initialize a cluster object.
 
         The cluster defaults to have 0 node with no profile assigned.
         '''
@@ -277,7 +277,7 @@ class Cluster(object):
             LOG.error(_LE('Cluster is in status "%s"'), self.status)
             return False
 
-        self.set_status(context, self.CREATING, reason='Creation in progress')
+        self.set_status(context, self.CREATING, _('Creation in progress'))
         return True
 
     def do_delete(self, context, **kwargs):
@@ -291,15 +291,15 @@ class Cluster(object):
 
         This method is intended to be called only from an action.
         '''
-        self.set_status(context, self.UPDATING, reason='Update in progress')
+        self.set_status(context, self.UPDATING, _('Update in progress'))
         return True
 
     def do_check(self, context, **kwargs):
-        '''Additional logic at the beginning of cluster checking process.
+        """Additional logic at the beginning of cluster checking process.
 
         Set cluster status to CHECKING.
-        '''
-        self.set_status(context, self.CHECKING, reason=_('Check in progress'))
+        """
+        self.set_status(context, self.CHECKING, _('Check in progress'))
         return True
 
     def do_recover(self, context, **kwargs):
@@ -307,8 +307,7 @@ class Cluster(object):
 
         Set cluster status to RECOVERING.
         '''
-        self.set_status(context, self.RECOVERING,
-                        reason=_('Recovery in progress'))
+        self.set_status(context, self.RECOVERING, _('Recovery in progress'))
         return True
 
     def attach_policy(self, ctx, policy_id, values):
@@ -510,3 +509,41 @@ class Cluster(object):
                 if zone == placement['zone']:
                     result.append(node)
         return result
+
+    def eval_status(self, ctx, operation, **params):
+        """Re-evaluate cluster's health status.
+
+        :param ctx: The requesting context.
+        :param operation: The operation that triggers this status evaluation.
+        :returns: ``None``.
+        """
+        self.rt['nodes'] = node_mod.Node.load_all(ctx, cluster_id=self.id)
+        active_count = 0
+        for node in self.nodes:
+            if node.status == 'ACTIVE':
+                active_count += 1
+
+        values = params or {}
+        if active_count < self.min_size:
+            status = self.ERROR
+            reason = _("%(o)s: number of active nodes is below min_size "
+                       "(%(n)d).") % {'o': operation, 'n': self.min_size}
+        elif active_count < self.desired_capacity:
+            status = self.WARNING
+            reason = _("%(o)s: number of active nodes is below "
+                       "desired_capacity "
+                       "(%(n)d).") % {'o': operation,
+                                      'n': self.desired_capacity}
+        elif self.max_size < 0 or active_count <= self.max_size:
+            status = self.ACTIVE
+            reason = _("%(o)s: number of active nodes is above "
+                       "desired_capacity "
+                       "(%(n)d).") % {'o': operation,
+                                      'n': self.desired_capacity}
+        else:
+            status = self.WARNING
+            reason = _("%(o)s: number of active nodes is above max_size "
+                       "(%(n)d).") % {'o': operation, 'n': self.max_size}
+
+        values.update({'status': status, 'status_reason': reason})
+        co.Cluster.update(ctx, self.id, values)

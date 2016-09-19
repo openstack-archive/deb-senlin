@@ -11,14 +11,19 @@ List events
 
 Lists all events.
 
-Normal response codes: 200
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- serviceUnavailable (503)
+   - 200
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 503
 
 Request Parameters
 ------------------
@@ -41,6 +46,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-ID: request_id
   - events: events
   - action: action_name
   - cluster_id: cluster_id
@@ -69,15 +75,20 @@ Shows event details
 
 Shows details for an event.
 
-Normal response codes: 200
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 200
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -92,6 +103,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-ID: request_id
   - event: event
   - action: action_name
   - cluster_id: cluster_id

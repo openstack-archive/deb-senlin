@@ -12,14 +12,18 @@ List profiles
 
 Lists all profiles.
 
-Normal response codes: 200
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- serviceUnavailable (503)
+   - 200
+
+.. rest_status_code:: error status.yaml
+
+   - 401
+   - 403
+   - 503
 
 Request Parameters
 ------------------
@@ -39,6 +43,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-Id: request_id
   - profiles: profiles
   - created_at: created_at
   - id: profile_id
@@ -64,14 +69,19 @@ Create profile
 
 Creates a profile.
 
-Normal response codes: 201
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- serviceUnavailable (503)
+   - 201
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 503
 
 Request Parameters
 ------------------
@@ -95,6 +105,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-Id: request_id
   - profile: profile
   - created_at: created_at
   - domain: domain
@@ -121,15 +132,20 @@ Show profile details
 
 Shows details for a profile.
 
-Normal response codes: 200
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound(404)
-- serviceUnavailable (503)
+   - 200
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -145,6 +161,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-Id: request_id
   - profile: profile
   - created_at: created_at
   - domain: domain
@@ -171,15 +188,20 @@ Update profile
 
 Updates a profile.
 
-Normal response codes: 200
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound(404)
-- serviceUnavailable (503)
+   - 200
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -204,6 +226,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-Id: request_id
   - profile: profile
   - created_at: created_at
   - id: profile_id
@@ -229,19 +252,24 @@ Delete profile
 
 Deletes a profile.
 
+Response Codes
+--------------
+
 A profile cannot be deleted if it is still used by node or cluster. In that
 case, a 409 error will be returned.
 
-Normal response codes: 204
+.. rest_status_code:: success status.yaml
 
-Error response codes:
+   - 204
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound(404)
-- conflict(409)
-- serviceUnavailable (503)
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 409
+   - 503
 
 Request Parameters
 ------------------
@@ -250,3 +278,60 @@ Request Parameters
 
   - OpenStack-API-Version: microversion
   - profile_id: profile_id_url
+
+
+Response Parameters
+-------------------
+
+.. rest_parameters:: parameters.yaml
+
+  - X-OpenStack-Request-Id: request_id
+
+
+Validate profile
+================
+
+.. rest_method::  POST /v1/profiles/validate
+
+Validates a profile.
+
+Response Codes
+--------------
+
+.. rest_status_code:: success status.yaml
+
+   - 200
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 503
+
+Request Parameters
+------------------
+
+.. rest_parameters:: parameters.yaml
+
+  - OpenStack-API-Version: microversion
+  - profile: profile
+  - spec: profile_spec
+
+Response Parameters
+-------------------
+
+The response contains properties as if the profile is created.
+
+.. rest_parameters:: parameters.yaml
+
+  - X-OpenStack-Request-Id: request_id
+  - created_at: created_at
+  - domain: domain
+  - id: profile_id
+  - metadata: metadata
+  - name: name
+  - project: project
+  - spec: profile_spec
+  - type: profile_type_name
+  - updated_at: updated_at
+  - user: user

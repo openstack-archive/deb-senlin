@@ -69,3 +69,121 @@ class TestZaqarV2(base.SenlinTestCase):
 
         zc.queue_delete('foo')
         self.message.delete_queue.assert_called_once_with('foo', True)
+
+    def test_messgae_post(self):
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        messages = {'k1': 'v1'}
+        zc.message_post('foo', messages)
+        self.message.post_message.assert_called_once_with(
+            'foo', messages)
+
+    def test_message_get(self):
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        zc.message_get('foo', 'MESSAGE_ID')
+        self.message.get_message.assert_called_once_with(
+            'foo', 'MESSAGE_ID')
+
+    def test_message_list(self):
+        self.message.messages.return_value = [{'id': 'ID1'},
+                                              {'id': 'ID2'}]
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        zc.message_list('foo')
+        self.message.messages.assert_called_once_with('foo')
+        self.message.messages.reset_mock()
+
+        zc.message_list('foo', marker='ID1')
+        self.message.messages.assert_called_once_with(
+            'foo', marker='ID1')
+
+    def test_message_delete(self):
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        zc.message_delete('foo', 'MESSAGE_ID', True)
+        self.message.delete_message.assert_called_once_with(
+            'foo', 'MESSAGE_ID', True)
+        self.message.delete_message.reset_mock()
+
+        zc.message_delete('foo', 'MESSAGE_ID', False)
+        self.message.delete_message.assert_called_once_with(
+            'foo', 'MESSAGE_ID', False)
+        self.message.delete_message.reset_mock()
+
+        zc.message_delete('foo', 'MESSAGE_ID')
+        self.message.delete_message.assert_called_once_with(
+            'foo', 'MESSAGE_ID', True)
+
+    def test_subscription_create(self):
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        attrs = {'k1': 'v1'}
+        zc.subscription_create('foo', **attrs)
+        self.message.create_subscription.assert_called_once_with(
+            'foo', k1='v1')
+
+    def test_subscription_get(self):
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        zc.subscription_get('foo', 'SUBSCRIPTION_ID')
+        self.message.get_subscription.assert_called_once_with(
+            'foo', 'SUBSCRIPTION_ID')
+
+    def test_subscription_list(self):
+        self.message.subscriptions.return_value = [{'id': 'ID1'},
+                                                   {'id': 'ID2'}]
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        zc.subscription_list('foo')
+        self.message.subscriptions.assert_called_once_with('foo')
+        self.message.subscriptions.reset_mock()
+
+        zc.subscription_list('foo', marker='ID1')
+        self.message.subscriptions.assert_called_once_with(
+            'foo', marker='ID1')
+
+    def test_subscription_delete(self):
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        zc.subscription_delete('foo', 'SUBSCRIPTION_ID', True)
+        self.message.delete_subscription.assert_called_once_with(
+            'foo', 'SUBSCRIPTION_ID', True)
+        self.message.delete_subscription.reset_mock()
+
+        zc.subscription_delete('foo', 'SUBSCRIPTION_ID', False)
+        self.message.delete_subscription.assert_called_once_with(
+            'foo', 'SUBSCRIPTION_ID', False)
+        self.message.delete_subscription.reset_mock()
+
+        zc.subscription_delete('foo', 'SUBSCRIPTION_ID')
+        self.message.delete_subscription.assert_called_once_with(
+            'foo', 'SUBSCRIPTION_ID', True)
+
+    def test_claim_create(self):
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        attrs = {'k1': 'v1'}
+        zc.claim_create('foo', **attrs)
+        self.message.create_claim.assert_called_once_with(
+            'foo', k1='v1')
+
+    def test_claim_get(self):
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        zc.claim_get('foo', 'CLAIM_ID')
+        self.message.get_claim.assert_called_once_with(
+            'foo', 'CLAIM_ID')
+
+    def test_claim_update(self):
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        attrs = {'k1': 'v1'}
+        zc.claim_update('foo', 'CLAIM_ID', **attrs)
+        self.message.update_claim.assert_called_once_with(
+            'foo', 'CLAIM_ID', k1='v1')
+
+    def test_claim_delete(self):
+        zc = zaqar_v2.ZaqarClient(self.conn_params)
+        zc.claim_delete('foo', 'CLAIM_ID', True)
+        self.message.delete_claim.assert_called_once_with(
+            'foo', 'CLAIM_ID', True)
+        self.message.delete_claim.reset_mock()
+
+        zc.claim_delete('foo', 'CLAIM_ID', False)
+        self.message.delete_claim.assert_called_once_with(
+            'foo', 'CLAIM_ID', False)
+        self.message.delete_claim.reset_mock()
+
+        zc.claim_delete('foo', 'CLAIM_ID')
+        self.message.delete_claim.assert_called_once_with(
+            'foo', 'CLAIM_ID', True)

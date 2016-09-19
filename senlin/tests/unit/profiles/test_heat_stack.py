@@ -11,9 +11,12 @@
 # under the License.
 
 import copy
-import mock
 
-from senlin.drivers import base as driver_base
+import mock
+import six
+
+from senlin.common import exception
+from senlin.profiles import base as profile_base
 from senlin.profiles.os.heat import stack
 from senlin.tests.unit.common import base
 from senlin.tests.unit.common import utils
@@ -43,106 +46,275 @@ class TestHeatStackProfile(base.SenlinTestCase):
         self.assertIsNone(profile.hc)
         self.assertIsNone(profile.stack_id)
 
-    @mock.patch.object(driver_base, 'SenlinDriver')
-    def test_heat_client_create_new_hc(self, mock_senlindriver):
-        test_stack = mock.Mock()
+    @mock.patch.object(profile_base.Profile, '_build_conn_params')
+    @mock.patch('senlin.drivers.base.SenlinDriver')
+    def test_heat_client_create_new_hc(self, mock_driver, mock_build):
+        node_obj = mock.Mock()
         hc = mock.Mock()
         sd = mock.Mock()
         sd.orchestration.return_value = hc
-        mock_senlindriver.return_value = sd
+        mock_driver.return_value = sd
+        params = mock.Mock()
+        mock_build.return_value = params
 
         profile = stack.StackProfile('t', self.spec)
 
-        # New hc will be created if no cache is found
-        profile.hc = None
-        params = mock.Mock()
-        mock_param = self.patchobject(profile, '_build_conn_params',
-                                      return_value=params)
-        res = profile.heat(test_stack)
+        res = profile.heat(node_obj)
+
         self.assertEqual(hc, res)
         self.assertEqual(hc, profile.hc)
-        mock_param.assert_called_once_with(test_stack.user, test_stack.project)
+        mock_build.assert_called_once_with(node_obj.user, node_obj.project)
         sd.orchestration.assert_called_once_with(params)
 
-    @mock.patch.object(driver_base, 'SenlinDriver')
-    def test_heat_client_use_cached_hc(self, mock_senlindriver):
-        test_stack = mock.Mock()
+    @mock.patch('senlin.drivers.base.SenlinDriver')
+    def test_heat_client_use_cached_hc(self, mock_driver):
         hc = mock.Mock()
-        sd = mock.Mock()
-        sd.orchestration.return_value = hc
-        mock_senlindriver.return_value = sd
-
         profile = stack.StackProfile('t', self.spec)
-
-        # Cache hc will be used
         profile.hc = hc
-        self.assertEqual(hc, profile.heat(test_stack))
+
+        res = profile.heat(mock.Mock())
+
+        self.assertEqual(hc, res)
+        # This is only called for building initial context
+        self.assertEqual(1, mock_driver.call_count)
 
     def test_do_validate(self):
         profile = stack.StackProfile('t', self.spec)
+        profile.hc = mock.Mock()
+        node_obj = mock.Mock()
+        node_obj.user = 'fake_user'
+        node_obj.project = 'fake_user'
 
-        profile.hc = mock.MagicMock()
-        test_stack = mock.Mock()
-        test_stack.name = 'test_stack'
-        self.assertTrue(profile.do_validate(test_stack))
-        self.assertTrue(profile.hc.stacks.validate.called)
+        res = profile.do_validate(node_obj)
 
-    def test_check_action_complete(self):
+        props = self.spec['properties']
+        call_args = {
+            'stack_name': mock.ANY,
+            'template': props['template'],
+            'parameters': props['parameters'],
+            'files': props['files'],
+            'environment': props['environment'],
+            'preview': True,
+        }
+        self.assertTrue(res)
+        profile.hc.stack_create.assert_called_once_with(**call_args)
+
+    def test_do_validate_fails(self):
         profile = stack.StackProfile('t', self.spec)
+        profile.hc = mock.Mock()
+        profile.hc.stack_create = mock.Mock(
+            side_effect=exception.InternalError(code=400, message='Boom'))
+        node_obj = mock.Mock()
+        node_obj.name = 'stack_node'
 
-        # Check 'IN_PROGRESS' Status Path
-        test_stack = mock.Mock()
-        fake_action = 'FAKE'
-        fake_stack = mock.Mock()
-        profile.hc = mock.MagicMock()
-        fake_stack.status = 'FAKE_IN_PROGRESS'
-        profile.hc.stack_get = mock.MagicMock(return_value=fake_stack)
-        self.assertFalse(profile._check_action_complete(test_stack,
-                                                        fake_action))
-        self.assertTrue(profile.hc.stack_get.called)
+        ex = self.assertRaises(exception.InvalidSpec,
+                               profile.do_validate, node_obj)
 
-        # Check 'COMPLETE' Status Path
-        fake_stack.status = 'FAKE_COMPLETE'
-        self.assertTrue(profile._check_action_complete(test_stack,
-                                                       fake_action))
-        self.assertEqual(2, profile.hc.stack_get.call_count)
+        props = self.spec['properties']
+        call_args = {
+            'stack_name': mock.ANY,
+            'template': props['template'],
+            'parameters': props['parameters'],
+            'files': props['files'],
+            'environment': props['environment'],
+            'preview': True,
+        }
+        profile.hc.stack_create.assert_called_once_with(**call_args)
+        self.assertEqual('Failed in validating template: Boom',
+                         six.text_type(ex))
 
     def test_do_create(self):
         profile = stack.StackProfile('t', self.spec)
 
         test_stack = mock.Mock()
         test_stack.name = 'test_stack'
-        fake_stack = mock.Mock()
-        profile.hc = mock.MagicMock()
-        fake_stack.id = 'ce8ae86c-9810-4cb1-8888-7fb53bc523bf'
-        profile._check_action_complete = mock.MagicMock(return_value=True)
-        profile.hc.stack_create = mock.MagicMock(return_value=fake_stack)
-        self.assertEqual(fake_stack.id, profile.do_create(test_stack))
-        self.assertTrue(profile.hc.stack_create.called)
-        self.assertTrue(profile._check_action_complete.called)
+        fake_stack = mock.Mock(id='FAKE_ID')
+        profile.hc = mock.Mock()
+
+        profile.hc.stack_create = mock.Mock(return_value=fake_stack)
+        profile.hc.wait_for_stack = mock.Mock()
+
+        # do it
+        res = profile.do_create(test_stack)
+
+        # assertions
+        kwargs = {
+            'stack_name': mock.ANY,
+            'template': self.spec['properties']['template'],
+            'timeout_mins': self.spec['properties']['timeout'],
+            'disable_rollback': self.spec['properties']['disable_rollback'],
+            'parameters': self.spec['properties']['parameters'],
+            'files': self.spec['properties']['files'],
+            'environment': self.spec['properties']['environment'],
+        }
+        self.assertEqual('FAKE_ID', res)
+        profile.hc.stack_create.assert_called_once_with(**kwargs)
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'CREATE_COMPLETE', timeout=3600)
+
+    def test_do_create_default_timeout(self):
+        del self.spec['properties']['timeout']
+        profile = stack.StackProfile('t', self.spec)
+
+        test_stack = mock.Mock()
+        test_stack.name = 'test_stack'
+        fake_stack = mock.Mock(id='FAKE_ID')
+        profile.hc = mock.Mock()
+
+        profile.hc.stack_create = mock.Mock(return_value=fake_stack)
+        profile.hc.wait_for_stack = mock.Mock()
+
+        # do it
+        res = profile.do_create(test_stack)
+
+        # assertions
+        self.assertEqual('FAKE_ID', res)
+        kwargs = {
+            'stack_name': mock.ANY,
+            'template': self.spec['properties']['template'],
+            'timeout_mins': None,
+            'disable_rollback': self.spec['properties']['disable_rollback'],
+            'parameters': self.spec['properties']['parameters'],
+            'files': self.spec['properties']['files'],
+            'environment': self.spec['properties']['environment'],
+        }
+        profile.hc.stack_create.assert_called_once_with(**kwargs)
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'CREATE_COMPLETE', timeout=None)
+
+    def test_do_create_failed_create(self):
+        profile = stack.StackProfile('t', self.spec)
+        profile.hc = mock.Mock()
+
+        stack_node = mock.Mock()
+        stack_node.name = 'test_stack'
+
+        profile.hc.stack_create = mock.Mock(
+            side_effect=exception.InternalError(code=400, message='Too Bad'))
+
+        # do it
+        ex = self.assertRaises(exception.EResourceCreation,
+                               profile.do_create,
+                               stack_node)
+
+        # assertions
+        self.assertEqual('Failed in creating stack: Too Bad.',
+                         six.text_type(ex))
+        call_args = {
+            'stack_name': mock.ANY,
+            'template': self.spec['properties']['template'],
+            'timeout_mins': self.spec['properties']['timeout'],
+            'disable_rollback': self.spec['properties']['disable_rollback'],
+            'parameters': self.spec['properties']['parameters'],
+            'files': self.spec['properties']['files'],
+            'environment': self.spec['properties']['environment'],
+        }
+        profile.hc.stack_create.assert_called_once_with(**call_args)
+        self.assertEqual(0, profile.hc.wait_for_stack.call_count)
+
+    def test_do_create_failed_wait(self):
+        del self.spec['properties']['timeout']
+        profile = stack.StackProfile('t', self.spec)
+
+        stack_node = mock.Mock()
+        stack_node.name = 'test_stack'
+        fake_stack = mock.Mock(id='FAKE_ID')
+        profile.hc = mock.Mock()
+
+        profile.hc.stack_create = mock.Mock(return_value=fake_stack)
+        profile.hc.wait_for_stack = mock.Mock(
+            side_effect=exception.InternalError(code=400, message='Timeout'))
+
+        # do it
+        ex = self.assertRaises(exception.EResourceCreation,
+                               profile.do_create,
+                               stack_node)
+
+        # assertions
+        self.assertEqual('Failed in creating stack: Timeout.',
+                         six.text_type(ex))
+        kwargs = {
+            'stack_name': mock.ANY,
+            'template': self.spec['properties']['template'],
+            'timeout_mins': None,
+            'disable_rollback': self.spec['properties']['disable_rollback'],
+            'parameters': self.spec['properties']['parameters'],
+            'files': self.spec['properties']['files'],
+            'environment': self.spec['properties']['environment'],
+        }
+        profile.hc.stack_create.assert_called_once_with(**kwargs)
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'CREATE_COMPLETE', timeout=None)
 
     def test_do_delete(self):
         profile = stack.StackProfile('t', self.spec)
 
-        test_stack = mock.Mock()
-        test_stack.physical_id = 'ce8ae86c-9810-4cb1-8888-7fb53bc523bf'
-        profile.hc = mock.MagicMock()
-        profile._check_action_complete = mock.MagicMock(return_value=True)
-        profile.hc.stack_delete = mock.MagicMock()
-        self.assertTrue(profile.do_delete(test_stack))
-        self.assertTrue(profile.hc.stack_delete.called)
-        self.assertTrue(profile.hc.wait_for_stack_delete.called)
+        test_stack = mock.Mock(physical_id='FAKE_ID')
+        profile.hc = mock.Mock()
+
+        # do it
+        res = profile.do_delete(test_stack)
+
+        # assertions
+        self.assertTrue(res)
+        profile.hc.stack_delete.assert_called_once_with('FAKE_ID', True)
+        profile.hc.wait_for_stack_delete.assert_called_once_with('FAKE_ID')
+
+    def test_do_delete_ignore_missing(self):
+        profile = stack.StackProfile('t', self.spec)
+
+        test_stack = mock.Mock(physical_id='FAKE_ID')
+        profile.hc = mock.Mock()
+
+        # do it
+        res = profile.do_delete(test_stack, ignore_missing=False)
+
+        # assertions
+        self.assertTrue(res)
+        profile.hc.stack_delete.assert_called_once_with('FAKE_ID', False)
+        profile.hc.wait_for_stack_delete.assert_called_once_with('FAKE_ID')
+
+    def test_do_delete_failed_deletion(self):
+        profile = stack.StackProfile('t', self.spec)
+
+        test_stack = mock.Mock(physical_id='FAKE_ID')
+        profile.hc = mock.Mock()
+        profile.hc.stack_delete = mock.Mock(
+            side_effect=exception.InternalError(code=400, message='Boom'))
+
+        # do it
+        ex = self.assertRaises(exception.EResourceDeletion,
+                               profile.do_delete,
+                               test_stack)
+
+        # assertions
+        self.assertEqual('Failed in deleting stack FAKE_ID: Boom.',
+                         six.text_type(ex))
+        profile.hc.stack_delete.assert_called_once_with('FAKE_ID', True)
+        self.assertEqual(0, profile.hc.wait_for_stack_delete.call_count)
+
+    def test_do_delete_failed_timeout(self):
+        profile = stack.StackProfile('t', self.spec)
+
+        test_stack = mock.Mock(physical_id='FAKE_ID')
+        profile.hc = mock.Mock()
+        profile.hc.wait_for_stack_delete = mock.Mock(
+            side_effect=exception.InternalError(code=400, message='Boom'))
+
+        # do it
+        ex = self.assertRaises(exception.EResourceDeletion,
+                               profile.do_delete, test_stack)
+
+        # assertions
+        self.assertEqual('Failed in deleting stack FAKE_ID: Boom.',
+                         six.text_type(ex))
+        profile.hc.stack_delete.assert_called_once_with('FAKE_ID', True)
+        profile.hc.wait_for_stack_delete.assert_called_once_with('FAKE_ID')
 
     def test_do_update(self):
         profile = stack.StackProfile('t', self.spec)
-
-        # Check New Stack Path
-        test_stack = mock.Mock()
-        test_stack.physical_id = None
-        new_profile = mock.Mock()
-        self.assertTrue(profile.do_update(test_stack, new_profile))
-
-        # New Profile
+        profile.hc = mock.Mock()
+        test_stack = mock.Mock(physical_id='FAKE_ID')
         new_spec = {
             'type': 'os.heat.stack',
             'version': '1.0',
@@ -150,200 +322,262 @@ class TestHeatStackProfile(base.SenlinTestCase):
                 'template': {"Template": "data update"},
                 'context': {},
                 'parameters': {'new': 'params'},
-                'files': {},
-                'timeout': 60,
-                'disable_rollback': True,
-                'environment': {}
+                'files': {'file1': 'new_content'},
+                'timeout': 123,
+                'disable_rollback': False,
+                'environment': {'foo': 'bar'}
             }
         }
         new_profile = stack.StackProfile('u', new_spec)
 
-        # Check Update Stack Path
-        test_stack.physical_id = 'ce8ae86c-9810-4cb1-8888-7fb53bc523bf'
-        profile.hc = mock.MagicMock()
-        profile._check_action_complete = mock.MagicMock(return_value=True)
-        profile.hc.stack_update = mock.MagicMock()
-        self.assertTrue(profile.do_update(test_stack, new_profile))
-        self.assertTrue(profile.hc.stack_update.called)
-        self.assertTrue(profile._check_action_complete.called)
+        # do it
+        res = profile.do_update(test_stack, new_profile)
 
-    def test_do_update_template(self):
+        # assertions
+        self.assertEqual(True, res)
+        kwargs = {
+            'template': {'Template': 'data update'},
+            'parameters': {'new': 'params'},
+            'timeout_mins': 123,
+            'disable_rollback': False,
+            'files': {'file1': 'new_content'},
+            'environment': {'foo': 'bar'},
+        }
+        profile.hc.stack_update.assert_called_once_with('FAKE_ID', **kwargs)
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'UPDATE_COMPLETE', timeout=3600)
+
+    def test_do_update_no_physical_stack(self):
         profile = stack.StackProfile('t', self.spec)
-        hc = mock.Mock()
-        self.patchobject(profile, 'heat', return_value=hc)
-        mock_check = self.patchobject(profile, '_check_action_complete',
-                                      return_value=True)
-        stack_obj = mock.Mock()
-        stack_obj.physical_id = 'STACKID'
+        test_stack = mock.Mock(physical_id=None)
+        new_profile = mock.Mock()
+
+        res = profile.do_update(test_stack, new_profile)
+
+        self.assertFalse(res)
+
+    def test_do_update_only_template(self):
+        profile = stack.StackProfile('t', self.spec)
+        profile.hc = mock.Mock()
+        stack_obj = mock.Mock(physical_id='FAKE_ID')
         new_spec = copy.deepcopy(self.spec)
         new_spec['properties']['template'] = {"Template": "data update"}
         new_profile = stack.StackProfile('u', new_spec)
 
-        profile.do_update(stack_obj, new_profile)
-        hc.stack_update.assert_called_once_with(
-            'STACKID', template={"Template": "data update"})
-        mock_check.assert_called_once_with(stack_obj, 'UPDATE')
+        res = profile.do_update(stack_obj, new_profile)
 
-    def test_do_update_params(self):
+        self.assertEqual(True, res)
+        profile.hc.stack_update.assert_called_once_with(
+            'FAKE_ID', template={"Template": "data update"})
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'UPDATE_COMPLETE', timeout=3600)
+
+    def test_do_update_only_params(self):
         profile = stack.StackProfile('t', self.spec)
-        hc = mock.Mock()
-        self.patchobject(profile, 'heat', return_value=hc)
-        mock_check = self.patchobject(profile, '_check_action_complete',
-                                      return_value=True)
-        stack_obj = mock.Mock()
-        stack_obj.physical_id = 'STACKID'
+        profile.hc = mock.Mock()
+        stack_obj = mock.Mock(physical_id='FAKE_ID')
         new_spec = copy.deepcopy(self.spec)
         new_spec['properties']['parameters'] = {"new": "params"}
         new_profile = stack.StackProfile('u', new_spec)
 
-        profile.do_update(stack_obj, new_profile)
-        hc.stack_update.assert_called_once_with('STACKID',
-                                                parameters={"new": "params"})
-        mock_check.assert_called_once_with(stack_obj, 'UPDATE')
+        res = profile.do_update(stack_obj, new_profile)
 
-    def test_do_update_timeout(self):
+        self.assertTrue(res)
+        profile.hc.stack_update.assert_called_once_with(
+            'FAKE_ID', parameters={"new": "params"})
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'UPDATE_COMPLETE', timeout=3600)
+
+    def test_do_update_with_timeout_value(self):
         profile = stack.StackProfile('t', self.spec)
-        hc = mock.Mock()
-        self.patchobject(profile, 'heat', return_value=hc)
-        mock_check = self.patchobject(profile, '_check_action_complete',
-                                      return_value=True)
-        stack_obj = mock.Mock()
-        stack_obj.physical_id = 'STACKID'
+        profile.hc = mock.Mock()
+        stack_obj = mock.Mock(physical_id='FAKE_ID')
         new_spec = copy.deepcopy(self.spec)
         new_spec['properties']['timeout'] = 120
         new_profile = stack.StackProfile('u', new_spec)
 
-        profile.do_update(stack_obj, new_profile)
-        hc.stack_update.assert_called_once_with('STACKID', timeout_mins=120)
-        mock_check.assert_called_once_with(stack_obj, 'UPDATE')
+        # do it
+        res = profile.do_update(stack_obj, new_profile)
+
+        # assertions
+        self.assertTrue(res)
+        profile.hc.stack_update.assert_called_once_with('FAKE_ID',
+                                                        timeout_mins=120)
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'UPDATE_COMPLETE', timeout=3600)
 
     def test_do_update_disable_rollback(self):
         profile = stack.StackProfile('t', self.spec)
-        hc = mock.Mock()
-        self.patchobject(profile, 'heat', return_value=hc)
-        mock_check = self.patchobject(profile, '_check_action_complete',
-                                      return_value=True)
-        stack_obj = mock.Mock()
-        stack_obj.physical_id = 'STACKID'
+        profile.hc = mock.Mock()
+        stack_obj = mock.Mock(physical_id='FAKE_ID')
         new_spec = copy.deepcopy(self.spec)
         new_spec['properties']['disable_rollback'] = False
         new_profile = stack.StackProfile('u', new_spec)
 
-        profile.do_update(stack_obj, new_profile)
-        hc.stack_update.assert_called_once_with('STACKID',
-                                                disable_rollback=False)
-        mock_check.assert_called_once_with(stack_obj, 'UPDATE')
+        # do it
+        res = profile.do_update(stack_obj, new_profile)
+
+        # assertions
+        self.assertTrue(res)
+        profile.hc.stack_update.assert_called_once_with(
+            'FAKE_ID', disable_rollback=False)
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'UPDATE_COMPLETE', timeout=3600)
 
     def test_do_update_files(self):
         profile = stack.StackProfile('t', self.spec)
-        hc = mock.Mock()
-        self.patchobject(profile, 'heat', return_value=hc)
-        mock_check = self.patchobject(profile, '_check_action_complete',
-                                      return_value=True)
-        stack_obj = mock.Mock()
-        stack_obj.physical_id = 'STACKID'
+        profile.hc = mock.Mock()
+        stack_obj = mock.Mock(physical_id='FAKE_ID')
         new_spec = copy.deepcopy(self.spec)
         new_spec['properties']['files'] = {"new": "file1"}
         new_profile = stack.StackProfile('u', new_spec)
 
-        profile.do_update(stack_obj, new_profile)
-        hc.stack_update.assert_called_once_with('STACKID',
-                                                files={"new": "file1"})
-        mock_check.assert_called_once_with(stack_obj, 'UPDATE')
+        # do it
+        res = profile.do_update(stack_obj, new_profile)
+
+        # assertions
+        self.assertTrue(res)
+        profile.hc.stack_update.assert_called_once_with(
+            'FAKE_ID', files={"new": "file1"})
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'UPDATE_COMPLETE', timeout=3600)
 
     def test_do_update_environment(self):
         profile = stack.StackProfile('t', self.spec)
-        hc = mock.Mock()
-        self.patchobject(profile, 'heat', return_value=hc)
-        mock_check = self.patchobject(profile, '_check_action_complete',
-                                      return_value=True)
-        stack_obj = mock.Mock()
-        stack_obj.physical_id = 'STACKID'
+        profile.hc = mock.Mock()
+        stack_obj = mock.Mock(physical_id='FAKE_ID')
         new_spec = copy.deepcopy(self.spec)
         new_spec['properties']['environment'] = {"new": "env1"}
         new_profile = stack.StackProfile('u', new_spec)
 
-        profile.do_update(stack_obj, new_profile)
-        hc.stack_update.assert_called_once_with('STACKID',
-                                                environment={"new": "env1"})
-        mock_check.assert_called_once_with(stack_obj, 'UPDATE')
+        # do it
+        res = profile.do_update(stack_obj, new_profile)
+
+        # assertions
+        self.assertTrue(res)
+        profile.hc.stack_update.assert_called_once_with(
+            'FAKE_ID', environment={"new": "env1"})
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'UPDATE_COMPLETE', timeout=3600)
 
     def test_do_update_no_change(self):
         profile = stack.StackProfile('t', self.spec)
-        hc = mock.Mock()
-        self.patchobject(profile, 'heat', return_value=hc)
-        stack_obj = mock.Mock()
-        stack_obj.physical_id = 'STACKID'
+        profile.hc = mock.Mock()
+        stack_obj = mock.Mock(physical_id='FAKE_ID')
         new_spec = copy.deepcopy(self.spec)
         new_profile = stack.StackProfile('u', new_spec)
 
         res = profile.do_update(stack_obj, new_profile)
-        self.assertTrue(res)
 
-    def test_do_update_failed(self):
+        self.assertTrue(res)
+        self.assertEqual(0, profile.hc.stack_update.call_count)
+
+    def test_do_update_failed_update(self):
         profile = stack.StackProfile('t', self.spec)
-        hc = mock.Mock()
-        self.patchobject(profile, 'heat', return_value=hc)
-        hc.stack_update.side_effect = Exception('Stack update failed.')
-        stack_obj = mock.Mock()
-        stack_obj.physical_id = 'STACKID'
+        profile.hc = mock.Mock()
+        profile.hc.stack_update = mock.Mock(
+            side_effect=exception.InternalError(code=400, message='Failed'))
+        stack_obj = mock.Mock(physical_id='FAKE_ID')
         new_spec = copy.deepcopy(self.spec)
         new_spec['properties']['environment'] = {"new": "env1"}
         new_profile = stack.StackProfile('u', new_spec)
 
-        res = profile.do_update(stack_obj, new_profile)
-        hc.stack_update.assert_called_once_with('STACKID',
-                                                environment={"new": "env1"})
-        self.assertFalse(res)
+        ex = self.assertRaises(exception.EResourceUpdate,
+                               profile.do_update,
+                               stack_obj, new_profile)
+
+        profile.hc.stack_update.assert_called_once_with(
+            'FAKE_ID', environment={"new": "env1"})
+        self.assertEqual(0, profile.hc.wait_for_stack.call_count)
+        self.assertEqual('Failed in updating stack FAKE_ID: Failed.',
+                         six.text_type(ex))
+
+    def test_do_update_timeout(self):
+        profile = stack.StackProfile('t', self.spec)
+        profile.hc = mock.Mock()
+        profile.hc.wait_for_stack = mock.Mock(
+            side_effect=exception.InternalError(code=400, message='Timeout'))
+        stack_obj = mock.Mock(physical_id='FAKE_ID')
+        new_spec = copy.deepcopy(self.spec)
+        new_spec['properties']['environment'] = {"new": "env1"}
+        new_profile = stack.StackProfile('u', new_spec)
+
+        ex = self.assertRaises(exception.EResourceUpdate,
+                               profile.do_update,
+                               stack_obj, new_profile)
+
+        profile.hc.stack_update.assert_called_once_with(
+            'FAKE_ID', environment={"new": "env1"})
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'UPDATE_COMPLETE', timeout=3600)
+        self.assertEqual('Failed in updating stack FAKE_ID: Timeout.',
+                         six.text_type(ex))
 
     def test_do_check(self):
+        node_obj = mock.Mock(physical_id='FAKE_ID')
+        profile = stack.StackProfile('t', self.spec)
+        profile.hc = mock.Mock()
+
+        # do it
+        res = profile.do_check(node_obj)
+
+        # assertions
+        self.assertEqual(True, res)
+        profile.hc.stack_check.assert_called_once_with('FAKE_ID')
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'CHECK_COMPLETE', timeout=3600)
+
+    def test_do_check_no_physical_id(self):
+        node_obj = mock.Mock(physical_id=None)
         profile = stack.StackProfile('t', self.spec)
 
-        heat_client = mock.Mock()
-        test_stack = mock.Mock()
-        test_stack.physical_id = 'ce8ae86c-9810-4cb1-8888-7fb53bc523bf'
-        fake_stack = mock.Mock()
-        fake_stack_complete = mock.Mock()
-        fake_stack_complete.status = 'CHECK_COMPLETE'
+        res = profile.do_check(node_obj)
 
-        # Setup side effect of mock call to handle checking status
-        # within while loop. 3rd call in while loop results in
-        # fake_stack_complete mock object with a "complete" status.
-        side_effect = [fake_stack, fake_stack, fake_stack_complete]
+        self.assertFalse(res)
 
-        # Check path where stack status can't be checked
-        fake_stack.check = mock.MagicMock(side_effect=Exception())
-        heat_client.stack_get = mock.MagicMock(side_effect=side_effect)
-        profile.heat = mock.MagicMock(return_value=heat_client)
-        self.assertFalse(profile.do_check(test_stack))
-        self.assertTrue(profile.heat.called)
-        self.assertTrue(heat_client.stack_get.called)
-        self.assertTrue(fake_stack.check.called)
+    def test_do_check_failed_checking(self):
+        node_obj = mock.Mock(physical_id='FAKE_ID')
+        profile = stack.StackProfile('t', self.spec)
+        profile.hc = mock.Mock()
+        profile.hc.stack_check = mock.Mock(
+            side_effect=exception.InternalError(code=400, message='BOOM'))
 
-        # Check normal status path
-        fake_stack.check = mock.MagicMock()
-        fake_stack.status = 'CHECK_IN_PROGRESS'
-        self.assertTrue(profile.do_check(test_stack))
-        self.assertEqual(2, profile.heat.call_count)
-        self.assertEqual(3, heat_client.stack_get.call_count)
-        self.assertTrue(fake_stack.check.called)
+        res = profile.do_check(node_obj)
+
+        self.assertFalse(res)
+        profile.hc.stack_check.assert_called_once_with('FAKE_ID')
+        self.assertEqual(0, profile.hc.wait_for_stack.call_count)
+
+    def test_do_check_failed_in_waiting(self):
+        node_obj = mock.Mock(physical_id='FAKE_ID')
+        profile = stack.StackProfile('t', self.spec)
+        profile.hc = mock.Mock()
+        profile.hc.wait_for_stack = mock.Mock(
+            side_effect=exception.InternalError(code=400, message='BOOM'))
+
+        res = profile.do_check(node_obj)
+
+        self.assertFalse(res)
+        profile.hc.stack_check.assert_called_once_with('FAKE_ID')
+        profile.hc.wait_for_stack.assert_called_once_with(
+            'FAKE_ID', 'CHECK_COMPLETE', timeout=3600)
 
     def test_do_get_details(self):
         profile = stack.StackProfile('t', self.spec)
-
-        hc = mock.Mock()
+        profile.hc = mock.Mock()
         details = mock.Mock()
-        hc.stack_get.return_value = details
-        test_stack = mock.Mock()
-        profile.heat = mock.MagicMock(return_value=hc)
+        profile.hc.stack_get = mock.Mock(return_value=details)
+        node_obj = mock.Mock(physical_id='FAKE_ID')
 
-        test_stack.physical_id = None
-        self.assertEqual({}, profile.do_get_details(test_stack))
+        res = profile.do_get_details(node_obj)
 
-        test_stack.physical_id = ''
-        self.assertEqual({}, profile.do_get_details(test_stack))
-
-        test_stack.physical_id = 'ce8ae86c-9810-4cb1-8888-7fb53bc523bf'
-        res = profile.do_get_details(test_stack)
-        hc.stack_get.assert_called_once_with(test_stack.physical_id)
         self.assertEqual(details, res)
+        profile.hc.stack_get.assert_called_once_with('FAKE_ID')
+
+    def test_do_get_details_no_physical_id(self):
+        profile = stack.StackProfile('t', self.spec)
+        node_obj = mock.Mock(physical_id=None)
+
+        res = profile.do_get_details(node_obj)
+
+        self.assertEqual({}, res)

@@ -201,32 +201,6 @@ class TestNovaV2(base.SenlinTestCase):
         d.server_create(name='foo')
         self.compute.create_server.assert_called_once_with(name='foo')
 
-    def test_wait_for_server(self):
-        self.compute.find_server.return_value = 'foo'
-
-        d = nova_v2.NovaClient(self.conn_params)
-        d.wait_for_server('foo', 'STATUS1', ['STATUS2'], 5, 10)
-        self.compute.wait_for_server.assert_called_once_with(
-            'foo', status='STATUS1', failures=['STATUS2'], interval=5, wait=10)
-
-    def test_wait_for_server_default_value(self):
-        self.compute.find_server.return_value = 'foo'
-
-        d = nova_v2.NovaClient(self.conn_params)
-        d.wait_for_server('foo', timeout=10)
-        self.compute.wait_for_server.assert_called_once_with(
-            'foo', status='ACTIVE', failures=['ERROR'], interval=2, wait=10)
-
-    def test_wait_for_server_with_default_timeout(self):
-        self.compute.find_server.return_value = 'foo'
-        timeout = cfg.CONF.default_action_timeout
-
-        d = nova_v2.NovaClient(self.conn_params)
-        d.wait_for_server('foo')
-        self.compute.wait_for_server.assert_called_once_with(
-            'foo', status='ACTIVE', failures=['ERROR'], interval=2,
-            wait=timeout)
-
     def test_server_get(self):
         d = nova_v2.NovaClient(self.conn_params)
         d.server_get('foo')
@@ -258,7 +232,14 @@ class TestNovaV2(base.SenlinTestCase):
     def test_server_delete(self):
         d = nova_v2.NovaClient(self.conn_params)
         d.server_delete('foo', True)
-        self.compute.delete_server.assert_called_once_with('foo', True)
+        self.compute.delete_server.assert_called_once_with(
+            'foo', ignore_missing=True)
+
+    def test_server_force_delete(self):
+        d = nova_v2.NovaClient(self.conn_params)
+        d.server_force_delete('foo', True)
+        self.compute.delete_server.assert_called_once_with(
+            'foo', ignore_missing=True, force=True)
 
     def test_server_rebuild(self):
         d = nova_v2.NovaClient(self.conn_params)
@@ -297,6 +278,50 @@ class TestNovaV2(base.SenlinTestCase):
 
         self.assertEqual(d.conn.compute.revert_resize_server.return_value, res)
         d.conn.compute.revert_resize_server.assert_called_once_with('fakeid')
+
+    def test_server_reboot(self):
+        d = nova_v2.NovaClient(self.conn_params)
+
+        res = d.server_reboot('fakeid', 'soft')
+
+        target = d.conn.compute.reboot_server
+        self.assertEqual(target.return_value, res)
+        target.assert_called_once_with('fakeid', 'soft')
+
+    def test_server_change_password(self):
+        d = nova_v2.NovaClient(self.conn_params)
+
+        res = d.server_change_password('fakeid', 'new_password')
+
+        target = d.conn.compute.change_server_password
+        self.assertEqual(target.return_value, res)
+        target.assert_called_once_with('fakeid', 'new_password')
+
+    def test_wait_for_server(self):
+        self.compute.find_server.return_value = 'foo'
+
+        d = nova_v2.NovaClient(self.conn_params)
+        d.wait_for_server('foo', 'STATUS1', ['STATUS2'], 5, 10)
+        self.compute.wait_for_server.assert_called_once_with(
+            'foo', status='STATUS1', failures=['STATUS2'], interval=5, wait=10)
+
+    def test_wait_for_server_default_value(self):
+        self.compute.find_server.return_value = 'foo'
+
+        d = nova_v2.NovaClient(self.conn_params)
+        d.wait_for_server('foo', timeout=10)
+        self.compute.wait_for_server.assert_called_once_with(
+            'foo', status='ACTIVE', failures=['ERROR'], interval=2, wait=10)
+
+    def test_wait_for_server_with_default_timeout(self):
+        self.compute.find_server.return_value = 'foo'
+        timeout = cfg.CONF.default_action_timeout
+
+        d = nova_v2.NovaClient(self.conn_params)
+        d.wait_for_server('foo')
+        self.compute.wait_for_server.assert_called_once_with(
+            'foo', status='ACTIVE', failures=['ERROR'], interval=2,
+            wait=timeout)
 
     def test_wait_for_server_delete(self):
         self.compute.find_server.return_value = 'FOO'
@@ -512,3 +537,32 @@ class TestNovaV2(base.SenlinTestCase):
         d = nova_v2.NovaClient(self.conn_params)
         d.hypervisor_get('k')
         self.compute.get_hypervisor.assert_called_once_with('k')
+
+    def test_service_list(self):
+        d = nova_v2.NovaClient(self.conn_params)
+        d.service_list()
+        self.compute.services.assert_called_once()
+
+    def test_service_enable(self):
+        d = nova_v2.NovaClient(self.conn_params)
+        services = d.service_list()
+        service = services.next()
+        d.service_enable(service)
+        self.compute.enable_service.assert_called_once_with(
+            service, service.host, service.binary)
+
+    def test_service_disable(self):
+        d = nova_v2.NovaClient(self.conn_params)
+        services = d.service_list()
+        service = services.next()
+        d.service_disable(service)
+        self.compute.disable_service.assert_called_once_with(
+            service, service.host, service.binary, None)
+
+    def test_service_force_down(self):
+        d = nova_v2.NovaClient(self.conn_params)
+        services = d.service_list()
+        service = services.next()
+        d.service_force_down(service)
+        self.compute.force_service_down.assert_called_once_with(
+            service, service.host, service.binary)

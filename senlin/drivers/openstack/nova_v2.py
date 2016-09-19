@@ -12,7 +12,6 @@
 
 from oslo_config import cfg
 from oslo_log import log
-import six
 
 from senlin.common.i18n import _LW
 from senlin.drivers import base
@@ -99,20 +98,6 @@ class NovaClient(base.DriverBase):
         return server_obj
 
     @sdk.translate_exception
-    def wait_for_server(self, server, status='ACTIVE', failures=['ERROR'],
-                        interval=2, timeout=None):
-        '''Wait for server creation complete'''
-        if timeout is None:
-            timeout = cfg.CONF.default_action_timeout
-
-        server_obj = self.conn.compute.find_server(server, False)
-        self.conn.compute.wait_for_server(server_obj, status=status,
-                                          failures=failures,
-                                          interval=interval,
-                                          wait=timeout)
-        return
-
-    @sdk.translate_exception
     def server_get(self, server):
         return self.conn.compute.get_server(server)
 
@@ -126,7 +111,14 @@ class NovaClient(base.DriverBase):
 
     @sdk.translate_exception
     def server_delete(self, server, ignore_missing=True):
-        return self.conn.compute.delete_server(server, ignore_missing)
+        return self.conn.compute.delete_server(server,
+                                               ignore_missing=ignore_missing)
+
+    @sdk.translate_exception
+    def server_force_delete(self, server, ignore_missing=True):
+        return self.conn.compute.delete_server(server,
+                                               ignore_missing=ignore_missing,
+                                               force=True)
 
     @sdk.translate_exception
     def server_rebuild(self, server, imageref, name=None, admin_password=None,
@@ -146,6 +138,28 @@ class NovaClient(base.DriverBase):
     @sdk.translate_exception
     def server_resize_revert(self, server):
         return self.conn.compute.revert_resize_server(server)
+
+    @sdk.translate_exception
+    def server_reboot(self, server, reboot_type):
+        return self.conn.compute.reboot_server(server, reboot_type)
+
+    @sdk.translate_exception
+    def server_change_password(self, server, new_password):
+        return self.conn.compute.change_server_password(server, new_password)
+
+    @sdk.translate_exception
+    def wait_for_server(self, server, status='ACTIVE', failures=['ERROR'],
+                        interval=2, timeout=None):
+        '''Wait for server creation complete'''
+        if timeout is None:
+            timeout = cfg.CONF.default_action_timeout
+
+        server_obj = self.conn.compute.find_server(server, False)
+        self.conn.compute.wait_for_server(server_obj, status=status,
+                                          failures=failures,
+                                          interval=interval,
+                                          wait=timeout)
+        return
 
     @sdk.translate_exception
     def wait_for_server_delete(self, server, timeout=None):
@@ -195,7 +209,7 @@ class NovaClient(base.DriverBase):
         res = self.conn.compute.get_server_metadata(server)
         if res.metadata:
             self.conn.compute.delete_server_metadata(
-                server, list(six.iterkeys(res.metadata)))
+                server, list(res.metadata.keys()))
 
         # Then reset metadata to given value if it is not {}
         if metadata:
@@ -262,3 +276,24 @@ class NovaClient(base.DriverBase):
     @sdk.translate_exception
     def hypervisor_get(self, hypervisor):
         return self.conn.compute.get_hypervisor(hypervisor)
+
+    @sdk.translate_exception
+    def service_list(self):
+        return self.conn.compute.services()
+
+    @sdk.translate_exception
+    def service_force_down(self, service):
+        return self.conn.compute.force_service_down(service, service.host,
+                                                    service.binary)
+
+    @sdk.translate_exception
+    def service_enable(self, service):
+        return self.conn.compute.enable_service(service, service.host,
+                                                service.binary)
+
+    @sdk.translate_exception
+    def service_disable(self, service, disabled_reason=None):
+        return self.conn.compute.disable_service(service,
+                                                 service.host,
+                                                 service.binary,
+                                                 disabled_reason)

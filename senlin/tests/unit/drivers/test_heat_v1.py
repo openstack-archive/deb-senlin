@@ -68,6 +68,33 @@ class TestHeatV1(base.SenlinTestCase):
         self.hc.stack_delete('stack_id', ignore_missing=True)
         self.orch.delete_stack.assert_called_once_with('stack_id', True)
 
+    def test_stack_delete_cannot_miss(self):
+        self.hc.stack_check('stack_id')
+        self.orch.check_stack.assert_called_once_with('stack_id')
+
+    def test_wait_for_stack(self):
+        self.hc.wait_for_stack('FAKE_ID', 'STATUS', [], 100, 200)
+        self.orch.find_stack.assert_called_once_with('FAKE_ID', False)
+        stk = self.orch.find_stack.return_value
+        self.orch.wait_for_status.assert_called_once_with(
+            stk, 'STATUS', [], 100, 200)
+
+    def test_wait_for_stack_failures_not_specified(self):
+        self.hc.wait_for_stack('FAKE_ID', 'STATUS', None, 100, 200)
+        self.orch.find_stack.assert_called_once_with('FAKE_ID', False)
+        stk = self.orch.find_stack.return_value
+        self.orch.wait_for_status.assert_called_once_with(
+            stk, 'STATUS', [], 100, 200)
+
+    def test_wait_for_stack_default_timeout(self):
+        cfg.CONF.set_override('default_action_timeout', 361, enforce_type=True)
+
+        self.hc.wait_for_stack('FAKE_ID', 'STATUS', None, 100, None)
+        self.orch.find_stack.assert_called_once_with('FAKE_ID', False)
+        stk = self.orch.find_stack.return_value
+        self.orch.wait_for_status.assert_called_once_with(
+            stk, 'STATUS', [], 100, 361)
+
     def test_wait_for_stack_delete_successful(self):
         fake_stack = mock.Mock(id='stack_id')
         self.orch.find_stack.return_value = fake_stack
@@ -75,6 +102,11 @@ class TestHeatV1(base.SenlinTestCase):
         self.orch.find_stack.assert_called_once_with('stack_id', True)
         self.orch.wait_for_delete.assert_called_once_with(fake_stack,
                                                           wait=3600)
+
+    def test_wait_for_stack_not_found(self):
+        self.orch.find_stack.return_value = None
+        self.hc.wait_for_stack('FAKE_ID', 'STATUS', [], 100, 200)
+        self.assertEqual(0, self.orch.wait_for_status.call_count)
 
     def test_wait_for_stack_delete_with_resource_not_found(self):
         self.orch.find_stack.return_value = None

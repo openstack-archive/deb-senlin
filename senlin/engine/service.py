@@ -24,9 +24,7 @@ import six
 from senlin.common import consts
 from senlin.common import context as senlin_context
 from senlin.common import exception
-from senlin.common.i18n import _
-from senlin.common.i18n import _LE
-from senlin.common.i18n import _LI
+from senlin.common.i18n import _, _LE, _LI
 from senlin.common import messaging as rpc_messaging
 from senlin.common import scaleutils as su
 from senlin.common import schema
@@ -38,7 +36,7 @@ from senlin.engine import dispatcher
 from senlin.engine import environment
 from senlin.engine import health_manager
 from senlin.engine import node as node_mod
-from senlin.engine import receiver as receiver_mod
+from senlin.engine.receivers import base as receiver_mod
 from senlin.engine import scheduler
 from senlin.objects import action as action_obj
 from senlin.objects import cluster as cluster_obj
@@ -114,13 +112,6 @@ class EngineService(service.Service):
         LOG.info(_LI("Starting dispatcher for engine %s"), self.engine_id)
         self.dispatcher.start()
 
-        # create a health manager RPC service for this engine.
-        self.health_mgr = health_manager.HealthManager(
-            self, self.health_mgr_topic, consts.RPC_API_VERSION)
-
-        LOG.info(_LI("Starting health manager for engine %s"), self.engine_id)
-        self.health_mgr.start()
-
         target = oslo_messaging.Target(version=consts.RPC_API_VERSION,
                                        server=self.host,
                                        topic=self.topic)
@@ -128,6 +119,14 @@ class EngineService(service.Service):
         self._rpc_server = rpc_messaging.get_rpc_server(target, self)
         self._rpc_server.start()
         self.service_manage_cleanup()
+
+        # create a health manager RPC service for this engine.
+        self.health_mgr = health_manager.HealthManager(
+            self, self.health_mgr_topic, consts.RPC_API_VERSION)
+
+        LOG.info(_LI("Starting health manager for engine %s"), self.engine_id)
+        self.health_mgr.start()
+
         self.TG.add_timer(cfg.CONF.periodic_interval,
                           self.service_manage_report)
         super(EngineService, self).start()
@@ -332,6 +331,46 @@ class EngineService(service.Service):
 
         return [p.to_dict() for p in profiles]
 
+    def _validate_profile(self, context, spec, name=None,
+                          metadata=None, validate_props=False):
+        """Validate a profile.
+
+        :param context: An instance of the request context.
+        :param name: The name for the profile to be created.
+        :param spec: A dictionary containing the spec for the profile.
+        :param metadata: A dictionary containing optional key-value pairs to
+                         be associated with the profile.
+        :param validate_props: Whether to validate if provide a valid Value
+                               to property.
+        :return: Validated profile object.
+        """
+        type_name, version = schema.get_spec_version(spec)
+        type_str = "-".join([type_name, version])
+        try:
+            plugin = environment.global_env().get_profile(type_str)
+        except exception.ProfileTypeNotFound:
+            msg = _("The specified profile type (%(name)s) is not found."
+                    ) % {"name": type_str}
+            raise exception.SpecValidationFailed(message=msg)
+
+        kwargs = {
+            'user': context.user,
+            'project': context.project,
+            'domain': context.domain,
+            'metadata': metadata
+        }
+        if name is None:
+            name = 'validated_profile'
+        profile = plugin(name, spec, **kwargs)
+        try:
+            profile.validate(validate_props=validate_props)
+        except exception.InvalidSpec as ex:
+            msg = six.text_type(ex)
+            LOG.error(_LE("Failed in validating profile: %s"), msg)
+            raise exception.SpecValidationFailed(message=msg)
+
+        return profile
+
     @request_context
     def profile_create(self, context, name, spec, metadata=None):
         """Create a profile with the given properties.
@@ -350,36 +389,29 @@ class EngineService(service.Service):
                         ) % {"name": name}
                 raise exception.BadRequest(msg=msg)
 
-        type_name, version = schema.get_spec_version(spec)
-        type_str = "-".join([type_name, version])
-        try:
-            plugin = environment.global_env().get_profile(type_str)
-        except exception.ProfileTypeNotFound:
-            msg = _("The specified profile type (%(name)s) is not found."
-                    ) % {"name": type_str}
-            raise exception.BadRequest(msg=msg)
+        profile = self._validate_profile(context, spec, name=name,
+                                         metadata=metadata)
 
         LOG.info(_LI("Creating profile %(type)s '%(name)s'."),
-                 {'type': type_str, 'name': name})
-
-        kwargs = {
-            'user': context.user,
-            'project': context.project,
-            'domain': context.domain,
-            'metadata': metadata,
-        }
-        profile = plugin(name, spec, **kwargs)
-        try:
-            profile.validate()
-        except exception.InvalidSpec as ex:
-            msg = six.text_type(ex)
-            LOG.error(_LE("Failed in creating profile: %s"), msg)
-            raise exception.BadRequest(msg=msg)
+                 {'type': profile.type, 'name': profile.name})
 
         profile.store(context)
 
         LOG.info(_LI("Profile %(name)s is created: %(id)s."),
                  {'name': name, 'id': profile.id})
+
+        return profile.to_dict()
+
+    @request_context
+    def profile_validate(self, context, spec):
+        """Validate a profile with the given properties.
+
+        :param context: An instance of the request context.
+        :param spec: A dictionary containing the spec for the profile.
+        :return: A dictionary containing the details of the profile object
+                 validated.
+        """
+        profile = self._validate_profile(context, spec, validate_props=True)
 
         return profile.to_dict()
 
@@ -442,7 +474,7 @@ class EngineService(service.Service):
         LOG.info(_LI("Deleting profile '%s'."), identity)
         try:
             profile_base.Profile.delete(context, db_profile.id)
-        except exception.ResourceBusyError:
+        except exception.EResourceBusy:
             LOG.error(_LI("The profile '%s' cannot be deleted."), identity)
             raise exception.ResourceInUse(resource_type='profile',
                                           resource_id=db_profile.id)
@@ -533,6 +565,44 @@ class EngineService(service.Service):
         return [p.to_dict() for p in policies]
 
     @request_context
+    def _validate_policy(self, context, spec, name=None, validate_props=False):
+        """Validate a policy.
+
+        :param context: An instance of the request context.
+        :param spec: A dictionary containing the spec for the policy.
+        :param name: The name for the policy to be created.
+        :param validate_props: Whether to validate the value of property.
+        :return: Validated policy object.
+        """
+
+        type_name, version = schema.get_spec_version(spec)
+        type_str = "-".join([type_name, version])
+        try:
+            plugin = environment.global_env().get_policy(type_str)
+        except exception.PolicyTypeNotFound:
+            msg = _("The specified policy type (%(name)s) is not found."
+                    ) % {"name": type_str}
+            raise exception.SpecValidationFailed(message=msg)
+
+        kwargs = {
+            'user': context.user,
+            'project': context.project,
+            'domain': context.domain,
+        }
+        if name is None:
+            name = 'validated_policy'
+        policy = plugin(name, spec, **kwargs)
+
+        try:
+            policy.validate(context, validate_props=validate_props)
+        except exception.InvalidSpec as ex:
+            msg = six.text_type(ex)
+            LOG.error(_LE("Failed in validating policy: %s"), msg)
+            raise exception.SpecValidationFailed(message=msg)
+
+        return policy
+
+    @request_context
     def policy_create(self, context, name, spec):
         """Create a policy with the given name and spec.
 
@@ -548,31 +618,10 @@ class EngineService(service.Service):
                         ) % {"name": name}
                 raise exception.BadRequest(msg=msg)
 
-        type_name, version = schema.get_spec_version(spec)
-        type_str = "-".join([type_name, version])
-        try:
-            plugin = environment.global_env().get_policy(type_str)
-        except exception.PolicyTypeNotFound:
-            msg = _("The specified policy type (%(name)s) is not found."
-                    ) % {"name": type_str}
-            raise exception.BadRequest(msg=msg)
+        policy = self._validate_policy(context, spec, name=name)
 
         LOG.info(_LI("Creating policy %(type)s '%(name)s'"),
-                 {'type': type_str, 'name': name})
-
-        kwargs = {
-            'user': context.user,
-            'project': context.project,
-            'domain': context.domain,
-        }
-        policy = plugin(name, spec, **kwargs)
-
-        try:
-            policy.validate()
-        except exception.InvalidSpec as ex:
-            msg = six.text_type(ex)
-            LOG.error(_LE("Failed in creating policy: %s"), msg)
-            raise exception.BadRequest(msg=msg)
+                 {'type': policy.type, 'name': policy.name})
 
         policy.store(context)
         LOG.info(_LI("Policy '%(name)s' is created: %(id)s."),
@@ -631,12 +680,25 @@ class EngineService(service.Service):
         LOG.info(_LI("Delete policy '%s'."), identity)
         try:
             policy_base.Policy.delete(context, db_policy.id)
-        except exception.ResourceBusyError:
+        except exception.EResourceBusy:
             LOG.error(_LI("Policy '%s' cannot be deleted."), identity)
             raise exception.ResourceInUse(resource_type='policy',
                                           resource_id=db_policy.id)
 
         LOG.info(_LI("Policy '%s' is deleted."), identity)
+
+    @request_context
+    def policy_validate(self, context, spec):
+        """Validate a policy with the given properties.
+
+        :param context: An instance of the request context.
+        :param spec: A dictionary containing the spec for the policy.
+        :return: A dictionary containing the details of the policy object
+                 validated.
+        """
+        policy = self._validate_policy(context, spec, validate_props=True)
+
+        return policy.to_dict()
 
     def cluster_find(self, context, identity, project_safe=True):
         """Find a cluster with the given identity.
@@ -885,31 +947,39 @@ class EngineService(service.Service):
 
         LOG.info(_LI('Deleting cluster %s'), identity)
 
-        db_cluster = self.cluster_find(context, identity)
+        # 'cluster' below is a DB object.
+        cluster = self.cluster_find(context, identity)
 
-        policies = cp_obj.ClusterPolicy.get_all(context, db_cluster.id)
+        if cluster.status in [cluster_mod.Cluster.CREATING,
+                              cluster_mod.Cluster.UPDATING,
+                              cluster_mod.Cluster.DELETING,
+                              cluster_mod.Cluster.RECOVERING]:
+            raise exception.ActionInProgress(type='cluster', id=identity,
+                                             status=cluster.status)
+
+        policies = cp_obj.ClusterPolicy.get_all(context, cluster.id)
         if len(policies) > 0:
             msg = _('Cluster %(id)s cannot be deleted without having all '
                     'policies detached.') % {'id': identity}
             LOG.error(msg)
             reason = _("there is still policy(s) attached to it.")
-            raise exception.ClusterBusy(cluster=db_cluster.id, reason=reason)
+            raise exception.ClusterBusy(cluster=identity, reason=reason)
 
         receivers = receiver_obj.Receiver.get_all(
-            context, filters={'cluster_id': db_cluster.id})
+            context, filters={'cluster_id': cluster.id})
         if len(receivers) > 0:
             msg = _('Cluster %(id)s cannot be deleted without having all '
                     'receivers deleted.') % {'id': identity}
             LOG.error(msg)
             reason = _("there is still receiver(s) associated with it.")
-            raise exception.ClusterBusy(cluster=db_cluster.id, reason=reason)
+            raise exception.ClusterBusy(cluster=identity, reason=reason)
 
         params = {
-            'name': 'cluster_delete_%s' % db_cluster.id[:8],
+            'name': 'cluster_delete_%s' % cluster.id[:8],
             'cause': action_mod.CAUSE_RPC,
             'status': action_mod.Action.READY,
         }
-        action_id = action_mod.Action.create(context, db_cluster.id,
+        action_id = action_mod.Action.create(context, cluster.id,
                                              consts.CLUSTER_DELETE, **params)
         dispatcher.start_action()
         LOG.info(_LI("Cluster delete action queued: %s"), action_id)
@@ -1469,13 +1539,6 @@ class EngineService(service.Service):
             'domain': context.domain,
         }
 
-        # TODO(xuhaiwei) Handle the case 'host_cluster' is not None
-        if node_profile.type == 'container.docker':
-            host_node = node_profile.properties.get('host_node', None)
-            if host_node:
-                host = self.node_get(context, host_node, project_safe=True)
-                kwargs['host'] = host
-
         node = node_mod.Node(name, node_profile.id, cluster_id, context,
                              **kwargs)
         node.store(context)
@@ -1594,13 +1657,19 @@ class EngineService(service.Service):
         """
         LOG.info(_LI('Deleting node %s'), identity)
 
-        db_node = self.node_find(context, identity)
+        node = self.node_find(context, identity)
+
+        if node.status in [node_mod.Node.CREATING, node_mod.Node.UPDATING,
+                           node_mod.Node.DELETING, node_mod.Node.RECOVERING]:
+            raise exception.ActionInProgress(type='node', id=identity,
+                                             status=node.status)
+
         params = {
-            'name': 'node_delete_%s' % db_node.id[:8],
+            'name': 'node_delete_%s' % node.id[:8],
             'cause': action_mod.CAUSE_RPC,
             'status': action_mod.Action.READY,
         }
-        action_id = action_mod.Action.create(context, db_node.id,
+        action_id = action_mod.Action.create(context, node.id,
                                              consts.NODE_DELETE, **params)
         dispatcher.start_action()
         LOG.info(_LI("Node delete action is queued: %s."), action_id)
@@ -1949,7 +2018,7 @@ class EngineService(service.Service):
         LOG.info(_LI("Deleting action '%s'."), identity)
         try:
             action_mod.Action.delete(context, db_action.id)
-        except exception.ResourceBusyError:
+        except exception.EResourceBusy:
             raise exception.ResourceInUse(resource_type='action',
                                           resource_id=db_action.id)
 
@@ -1964,7 +2033,7 @@ class EngineService(service.Service):
                              projects other than the requesting one can be
                              returned.
         :return: A DB object of receiver or an exception `ReceiverNotFound`
-                 if no matching reciever is found.
+                 if no matching receiver is found.
         """
         if uuidutils.is_uuid_like(identity):
             receiver = receiver_obj.Receiver.get(
@@ -2044,26 +2113,30 @@ class EngineService(service.Service):
             msg = _("Receiver type '%s' is not supported.") % rtype
             raise exception.BadRequest(msg=msg)
 
-        # Check whether cluster identified by cluster_id does exist
+        # Sanity check for webhook target
         cluster = None
-        try:
-            cluster = self.cluster_find(context, cluster_id)
-        except exception.ClusterNotFound:
-            msg = _("The referenced cluster '%s' is not found.") % cluster_id
-            raise exception.BadRequest(msg=msg)
+        if rtype == consts.RECEIVER_WEBHOOK:
+            # Check whether cluster identified by cluster_id does exist
+            try:
+                cluster = self.cluster_find(context, cluster_id)
+            except exception.ClusterNotFound:
+                msg = _("The referenced cluster '%s' is not found."
+                        ) % cluster_id
+                raise exception.BadRequest(msg=msg)
 
-        # permission checking
-        if not context.is_admin and context.user != cluster.user:
-            raise exception.Forbidden()
+            # permission checking
+            if not context.is_admin and context.user != cluster.user:
+                raise exception.Forbidden()
 
-        # Check action name
-        if action not in consts.ACTION_NAMES:
-            msg = _("Illegal action '%s' specified.") % action
-            raise exception.BadRequest(msg=msg)
+            # Check action name
+            if action not in consts.ACTION_NAMES:
+                msg = _("Illegal action '%s' specified.") % action
+                raise exception.BadRequest(msg=msg)
 
-        if action.lower().split('_')[0] != 'cluster':
-            msg = _("Action '%s' is not applicable to clusters.") % action
-            raise exception.BadRequest(msg=msg)
+            if action.lower().split('_')[0] != 'cluster':
+                msg = _("Action '%s' is not applicable to clusters."
+                        ) % action
+                raise exception.BadRequest(msg=msg)
 
         if not params:
             params = {}
@@ -2111,7 +2184,7 @@ class EngineService(service.Service):
         """
         db_receiver = self.receiver_find(context, identity)
         LOG.info(_LI("Deleting receiver %s."), identity)
-        receiver_obj.Receiver.delete(context, db_receiver.id)
+        receiver_mod.Receiver.delete(context, db_receiver.id)
         LOG.info(_LI("Receiver %s is deleted."), identity)
 
     @request_context

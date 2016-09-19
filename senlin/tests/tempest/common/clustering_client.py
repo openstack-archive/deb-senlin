@@ -15,14 +15,12 @@
 from six.moves.urllib import parse as urllib
 import time
 
-from oslo_log import log
 from oslo_serialization import jsonutils
 from tempest import config
 from tempest.lib.common import rest_client
 from tempest.lib import exceptions
 
 CONF = config.CONF
-lOG = log.getLogger(__name__)
 
 
 class ClusteringAPIClient(rest_client.RestClient):
@@ -76,6 +74,14 @@ class ClusteringAPIClient(rest_client.RestClient):
     def delete_obj(self, obj_type, obj_id):
         uri = '{0}/{1}/{2}'.format(self.version, obj_type, obj_id)
         resp, body = self.delete(uri)
+
+        return self._parsed_resp(resp, body)
+
+    def validate_obj(self, obj_type, attrs):
+        uri = '{0}/{1}/validate'.format(self.version, obj_type)
+        headers = {'openstack-api-version': 'clustering 1.2'}
+        resp, body = self.post(uri, body=jsonutils.dumps(attrs),
+                               headers=headers)
 
         return self._parsed_resp(resp, body)
 
@@ -136,4 +142,9 @@ class ClusteringAPIClient(rest_client.RestClient):
 
 class ClusteringFunctionalClient(ClusteringAPIClient):
     """This is the tempest client for Senlin functional test"""
+    pass
+
+
+class ClusteringIntegrationClient(ClusteringAPIClient):
+    """This is the tempest client for Senlin integration test"""
     pass

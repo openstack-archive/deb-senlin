@@ -104,8 +104,11 @@ class Policy(object):
         self.updated_at = kwargs.get('updated_at', None)
 
         self.spec_data = schema.Spec(self.spec_schema, spec)
-        self.properties = schema.Spec(self.properties_schema,
-                                      self.spec.get(self.PROPERTIES, {}))
+        self.properties = schema.Spec(
+            self.properties_schema,
+            self.spec.get(self.PROPERTIES, {}),
+            version)
+
         self.singleton = True
 
     @classmethod
@@ -191,7 +194,7 @@ class Policy(object):
 
         return self.id
 
-    def validate(self):
+    def validate(self, context, validate_props=False):
         '''Validate the schema and the data provided.'''
         self.spec_data.validate()
         self.properties.validate()
@@ -276,10 +279,11 @@ class Policy(object):
         }
         return pb_dict
 
-    def _build_conn_params(self, cluster):
+    def _build_conn_params(self, user, project):
         """Build trust-based connection parameters.
 
-        :param cluster: the cluste for which the trust will be checked.
+        :param user: the user for which the trust will be checked.
+        :param object: the user for which the trust will be checked.
         """
         service_creds = senlin_context.get_service_context()
         params = {
@@ -289,10 +293,9 @@ class Policy(object):
             'user_domain_name': service_creds.get('user_domain_name')
         }
 
-        cred = co.Credential.get(oslo_context.get_current(),
-                                 cluster.user, cluster.project)
+        cred = co.Credential.get(oslo_context.get_current(), user, project)
         if cred is None:
-            raise exception.TrustNotFound(trustor=cluster.user)
+            raise exception.TrustNotFound(trustor=user)
         params['trust_id'] = cred.cred['openstack']['trust']
 
         return params

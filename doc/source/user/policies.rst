@@ -130,7 +130,8 @@ The properties in this spec file are specific to the ``senlin.policy.deletion``
 policy type. To create a policy object using this "spec" file, you can use the
 following command::
 
-  $ opentack cluster policy create --spec deletion_policy.yaml dp01
+  $ cd /opt/stack/senlin/examples/policies
+  $ openstack cluster policy create --spec deletion_policy.yaml dp01
   +------------+-----------------------------------------------------------+
   | Property   | Value                                                     |
   +------------+-----------------------------------------------------------+

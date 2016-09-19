@@ -10,7 +10,8 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-import six
+from oslo_config import cfg
+from oslo_utils import timeutils
 
 
 def exact_filter(query, model, filters):
@@ -32,7 +33,7 @@ def exact_filter(query, model, filters):
     if filters is None:
         filters = {}
 
-    for key, value in six.iteritems(filters):
+    for key, value in filters.items():
         if isinstance(value, (list, tuple, set, frozenset)):
             column_attr = getattr(model, key)
             query = query.filter(column_attr.in_(value))
@@ -73,3 +74,11 @@ def get_sort_params(value, default_key=None):
         dirs.append('asc')
 
     return keys, dirs
+
+
+def is_service_dead(service):
+    """Check if a given service is dead."""
+    cfg.CONF.import_opt("periodic_interval", "senlin.common.config")
+    max_elapse = 2 * cfg.CONF.periodic_interval
+
+    return timeutils.is_older_than(service.updated_at, max_elapse)

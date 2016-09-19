@@ -33,14 +33,17 @@ following detailed instructions.
     $ git clone https://git.openstack.org/openstack-dev/devstack
     $ cd devstack
 
-2. Add this repo as an external repository into your ``local.conf`` file::
+2. Add following repo as external repositories into your ``local.conf`` file::
 
     [[local|localrc]]
+    #Enable senlin
     enable_plugin senlin https://git.openstack.org/openstack/senlin
+    #Enable senlin-dashboard
+    enable_plugin senlin-dashboard https://git.openstack.org/openstack/senlin-dashboard
 
-3. Run ``stack.sh``::
+3. Run ``./stack.sh``::
 
-    $ stack.sh
+    $ ./stack.sh
 
 Note that Senlin client is also installed when following the instructions.
 
@@ -114,6 +117,13 @@ The most common options to be customized include:
   rabbit_userid = <RABBIT USER ID>
   rabbit_hosts = <HOST>
   rabbit_password = <RABBIT PASSWORD>
+
+  [oslo_messaging_notifications]
+  driver = messaging
+
+For more comprehensive helps on configuration options, please refer to
+:doc:`Configuration Options <configuration>` documentation.
+
 
 5. Create Senlin Database.
 

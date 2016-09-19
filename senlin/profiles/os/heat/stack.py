@@ -10,16 +10,14 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from oslo_log import log as logging
 import six
 
-from oslo_log import log as logging
-
-from senlin.common import exception
+from senlin.common import exception as exc
 from senlin.common.i18n import _
 from senlin.common import schema
 from senlin.common import utils
 from senlin.drivers import base as driver_base
-from senlin.engine import scheduler
 from senlin.profiles import base
 
 LOG = logging.getLogger(__name__)
@@ -99,8 +97,11 @@ class StackProfile(base.Profile):
         self.stack_id = None
 
     def heat(self, obj):
-        '''Construct heat client using the combined context.'''
+        """Construct heat client using the combined context.
 
+        :param obj: Node object to operate on.
+        :returns: A reference to the orchestration driver.
+        """
         if self.hc:
             return self.hc
         params = self._build_conn_params(obj.user, obj.project)
@@ -108,47 +109,34 @@ class StackProfile(base.Profile):
         return self.hc
 
     def do_validate(self, obj):
-        '''Validate if the spec has provided info for stack creation.'''
+        """Validate the stack template used by a node.
 
+        :param obj: Node object to operate.
+        :returns: True if validation succeeds.
+        :raises: `InvalidSpec` exception is raised if template is invalid.
+        """
         kwargs = {
-            'stack_name': obj.name,
+            'stack_name': utils.random_name(),
             'template': self.properties[self.TEMPLATE],
-            'timeout_mins': self.properties[self.TIMEOUT],
-            'disable_rollback': self.properties[self.DISABLE_ROLLBACK],
             'parameters': self.properties[self.PARAMETERS],
             'files': self.properties[self.FILES],
             'environment': self.properties[self.ENVIRONMENT],
+            'preview': True,
         }
         try:
-            self.heat(obj).stacks.validate(**kwargs)
-        except Exception as ex:
-            msg = _('Failed validate stack template due to '
-                    '"%s"') % six.text_type(ex)
-            raise exception.InvalidSpec(message=msg)
+            self.heat(obj).stack_create(**kwargs)
+        except exc.InternalError as ex:
+            msg = _('Failed in validating template: %s') % six.text_type(ex)
+            raise exc.InvalidSpec(message=msg)
 
         return True
 
-    def _check_action_complete(self, obj, action):
-        stack = self.heat(obj).stack_get(self.stack_id)
-
-        status = stack.status.split('_', 1)
-
-        if status[0] == action:
-            if status[1] == 'IN_PROGRESS':
-                return False
-
-            if status[1] == 'COMPLETE':
-                return True
-
-            raise exception.ResourceStatusError(resource_id=self.stack_id,
-                                                status=stack.status,
-                                                reason=stack.status_reason)
-        else:
-            return False
-
     def do_create(self, obj):
-        '''Create a stack using the given profile.'''
+        """Create a heat stack using the given node object.
 
+        :param obj: The node object to operate on.
+        :returns: The UUID of the heat stack created.
+        """
         kwargs = {
             'stack_name': obj.name + '-' + utils.random_name(8),
             'template': self.properties[self.TEMPLATE],
@@ -159,38 +147,53 @@ class StackProfile(base.Profile):
             'environment': self.properties[self.ENVIRONMENT],
         }
 
-        LOG.info('Creating stack: %s' % kwargs)
-        stack = self.heat(obj).stack_create(**kwargs)
-        self.stack_id = stack.id
-
-        # Wait for action to complete/fail
-        while not self._check_action_complete(obj, 'CREATE'):
-            scheduler.sleep(1)
-
-        return stack.id
-
-    def do_delete(self, obj):
-        self.stack_id = obj.physical_id
-
         try:
-            self.heat(obj).stack_delete(self.stack_id, True)
-            self.heat(obj).wait_for_stack_delete(self.stack_id)
-        except Exception as ex:
-            LOG.error('Error: %s' % six.text_type(ex))
-            raise ex
+            stack = self.heat(obj).stack_create(**kwargs)
 
+            # Timeout = None means we will use the 'default_action_timeout'
+            # It can be overridden by the TIMEOUT profile propertie
+            timeout = None
+            if self.properties[self.TIMEOUT]:
+                timeout = self.properties[self.TIMEOUT] * 60
+
+            self.heat(obj).wait_for_stack(stack.id, 'CREATE_COMPLETE',
+                                          timeout=timeout)
+            return stack.id
+        except exc.InternalError as ex:
+            raise exc.EResourceCreation(type='stack', message=ex.message)
+
+    def do_delete(self, obj, **params):
+        """Delete the physical stack behind the node object.
+
+        :param obj: The node object to operate on.
+        :param kwargs params: Optional keyword arguments for the delete
+                              operation.
+        :returns: This operation always return True unless exception is
+                  caught.
+        :raises: `EResourceDeletion` if interaction with heat fails.
+        """
+        stack_id = obj.physical_id
+
+        ignore_missing = params.get('ignore_missing', True)
+        try:
+            self.heat(obj).stack_delete(stack_id, ignore_missing)
+            self.heat(obj).wait_for_stack_delete(stack_id)
+        except exc.InternalError as ex:
+            raise exc.EResourceDeletion(type='stack', id=stack_id,
+                                        message=six.text_type(ex))
         return True
 
     def do_update(self, obj, new_profile, **params):
-        '''Perform update on object.
+        """Perform update on object.
 
         :param obj: the node object to operate on
         :param new_profile: the new profile used for updating
-        :param params: other parametes for the update request.
-        '''
+        :param params: other parameters for the update request.
+        :returns: A boolean indicating whether the operation is successful.
+        """
         self.stack_id = obj.physical_id
         if not self.stack_id:
-            return True
+            return False
 
         if not self.validate_for_update(new_profile):
             return False
@@ -220,44 +223,51 @@ class StackProfile(base.Profile):
         if new_environment != self.properties[self.ENVIRONMENT]:
             fields['environment'] = new_environment
 
-        if fields:
-            try:
-                self.heat(obj).stack_update(self.stack_id, **fields)
-            except Exception as ex:
-                LOG.exception(_('Failed in updating stack: %s'
-                                ), six.text_type(ex))
-                return False
+        if not fields:
+            return True
 
-            # Wait for action to complete/fail
-            while not self._check_action_complete(obj, 'UPDATE'):
-                scheduler.sleep(1)
+        try:
+            # Timeout = None means we will use the 'default_action_timeout'
+            # It can be overridden by the TIMEOUT profile propertie
+            timeout = None
+            if self.properties[self.TIMEOUT]:
+                timeout = self.properties[self.TIMEOUT] * 60
+            self.heat(obj).stack_update(self.stack_id, **fields)
+            self.heat(obj).wait_for_stack(self.stack_id, 'UPDATE_COMPLETE',
+                                          timeout=timeout)
+        except exc.InternalError as ex:
+            raise exc.EResourceUpdate(type='stack', id=self.stack_id,
+                                      message=ex.message)
 
         return True
 
     def do_check(self, obj):
-        """Check stack status."""
+        """Check stack status.
+
+        :param obj: Node object to operate.
+        :returns: True if check succeedes, or False otherwise.
+        """
+        stack_id = obj.physical_id
+        if stack_id is None:
+            return False
+
         hc = self.heat(obj)
         try:
-            stack = hc.stack_get(obj.physical_id)
-        except Exception as ex:
-            raise ex
-        # When the stack is in a status which can't be checked(
-        # CREATE_IN_PROGRESS, DELETE_IN_PROGRESS, etc), return False.
-        try:
-            stack.check(hc.session)
-        except Exception:
+            # Timeout = None means we will use the 'default_action_timeout'
+            # It can be overridden by the TIMEOUT profile propertie
+            timeout = None
+            if self.properties[self.TIMEOUT]:
+                timeout = self.properties[self.TIMEOUT] * 60
+            hc.stack_check(stack_id)
+            hc.wait_for_stack(stack_id, 'CHECK_COMPLETE', timeout=timeout)
+        except exc.InternalError as ex:
+            LOG.error(_('Failed in checking stack: %s.'), six.text_type(ex))
             return False
 
-        status = stack.status
-        while status == 'CHECK_IN_PROGRESS':
-            status = hc.stack_get(obj.physical_id).status
-        if status == 'CHECK_COMPLETE':
-            return True
-        else:
-            return False
+        return True
 
     def do_get_details(self, obj):
-        if obj.physical_id is None or obj.physical_id == '':
+        if not obj.physical_id:
             return {}
 
         return self.heat(obj).stack_get(obj.physical_id)

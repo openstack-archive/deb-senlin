@@ -18,7 +18,6 @@ import six
 import sys
 import threading
 
-from oslo_config import cfg
 from oslo_db import api as oslo_db_api
 from oslo_db import exception as db_exc
 from oslo_db.sqlalchemy import enginefacade
@@ -35,9 +34,6 @@ from senlin.db.sqlalchemy import models
 from senlin.db.sqlalchemy import utils
 
 LOG = logging.getLogger(__name__)
-
-
-CONF = cfg.CONF
 
 _main_context_manager = None
 _CONTEXT = threading.local()
@@ -319,7 +315,7 @@ def node_migrate(context, node_id, to_cluster, timestamp, role=None):
         return node
 
 
-def node_delete(context, node_id, force=False):
+def node_delete(context, node_id):
     with session_for_write() as session:
         node = session.query(models.Node).get(node_id)
         if not node:
@@ -497,7 +493,7 @@ def policy_update(context, policy_id, values):
         return policy
 
 
-def policy_delete(context, policy_id, force=False):
+def policy_delete(context, policy_id):
     with session_for_write() as session:
         policy = session.query(models.Policy).get(policy_id)
 
@@ -507,8 +503,7 @@ def policy_delete(context, policy_id, force=False):
         bindings = session.query(models.ClusterPolicies).filter_by(
             policy_id=policy_id)
         if bindings.count():
-            raise exception.ResourceBusyError(resource_type='policy',
-                                              resource_id=policy_id)
+            raise exception.EResourceBusy(type='policy', id=policy_id)
         session.delete(policy)
 
 
@@ -592,7 +587,7 @@ def profile_create(context, values):
 
 def profile_get(context, profile_id, project_safe=True):
     query = model_query(context, models.Profile)
-    profile = query.filter_by(id=profile_id).first()
+    profile = query.get(profile_id)
 
     if profile is None:
         return None
@@ -642,7 +637,7 @@ def profile_update(context, profile_id, values):
         return profile
 
 
-def profile_delete(context, profile_id, force=False):
+def profile_delete(context, profile_id):
     with session_for_write() as session:
         profile = session.query(models.Profile).get(profile_id)
         if profile is None:
@@ -652,14 +647,12 @@ def profile_delete(context, profile_id, force=False):
         clusters = session.query(models.Cluster).filter_by(
             profile_id=profile_id)
         if clusters.count() > 0:
-            raise exception.ResourceBusyError(resource_type='profile',
-                                              resource_id=profile_id)
+            raise exception.EResourceBusy(type='profile', id=profile_id)
 
         # used by any nodes?
         nodes = session.query(models.Node).filter_by(profile_id=profile_id)
         if nodes.count() > 0:
-            raise exception.ResourceBusyError(resource_type='profile',
-                                              resource_id=profile_id)
+            raise exception.EResourceBusy(type='profile', id=profile_id)
         session.delete(profile)
 
 
@@ -1081,7 +1074,7 @@ def action_signal_query(context, action_id):
     return action.control
 
 
-def action_delete(context, action_id, force=False):
+def action_delete(context, action_id):
     with session_for_write() as session:
         action = session.query(models.Action).get(action_id)
         if not action:
@@ -1089,8 +1082,7 @@ def action_delete(context, action_id, force=False):
         if ((action.status == 'WAITING') or (action.status == 'RUNNING') or
                 (action.status == 'SUSPENDED')):
 
-            raise exception.ResourceBusyError(resource_type='action',
-                                              resource_id=action_id)
+            raise exception.EResourceBusy(type='action', id=action_id)
         session.delete(action)
 
 
@@ -1192,11 +1184,12 @@ def service_get_all(context):
 # HealthRegistry
 def registry_claim(context, engine_id):
     with session_for_write() as session:
-        q_eng = session.query(models.Service)
-        svc_ids = [s.id for s in q_eng.all()]
-
+        engines = session.query(models.Service).all()
+        svc_ids = [e.id for e in engines if not utils.is_service_dead(e)]
         q_reg = session.query(models.HealthRegistry)
-        q_reg = q_reg.filter(models.HealthRegistry.engine_id.notin_(svc_ids))
+        if svc_ids:
+            q_reg = q_reg.filter(
+                models.HealthRegistry.engine_id.notin_(svc_ids))
         q_reg.update({'engine_id': engine_id}, synchronize_session=False)
         result = q_reg.all()
         return result

@@ -11,15 +11,21 @@
 # under the License.
 
 from oslo_config import cfg
+from oslo_context import context as oslo_context
+from oslo_log import log as logging
 from oslo_utils import timeutils
 from oslo_utils import uuidutils
-from six.moves.urllib import parse
 
 from senlin.common import consts
+from senlin.common import context as senlin_context
 from senlin.common import exception
+from senlin.common.i18n import _
 from senlin.common import utils
+from senlin.drivers import base as driver_base
 from senlin.objects import credential as co
 from senlin.objects import receiver as ro
+
+LOG = logging.getLogger(__name__)
 
 CONF = cfg.CONF
 
@@ -37,7 +43,11 @@ class Receiver(object):
         :returns: An instance of a specific sub-class of Receiver.
         """
         if rtype == consts.RECEIVER_WEBHOOK:
-            ReceiverClass = Webhook
+            from senlin.engine.receivers import webhook
+            ReceiverClass = webhook.Webhook
+        elif rtype == consts.RECEIVER_MESSAGE:
+            from senlin.engine.receivers import message
+            ReceiverClass = message.Message
         else:
             ReceiverClass = Receiver
 
@@ -188,23 +198,54 @@ class Receiver(object):
     def initialize_channel(self):
         return {}
 
+    def release_channel(self):
+        return
 
-class Webhook(Receiver):
-    """Webhook flavor of receivers."""
+    @classmethod
+    def delete(cls, context, receiver_id):
+        """Delete a receiver.
 
-    def initialize_channel(self):
-        host = CONF.webhook.host
-        port = CONF.webhook.port
-        base = "http://%(h)s:%(p)s/v1" % {'h': host, 'p': port}
-        webhook = "/webhooks/%(id)s/trigger" % {'id': self.id}
-        if self.params:
-            normalized = sorted(self.params.items(), key=lambda d: d[0])
-            qstr = parse.urlencode(normalized)
-            url = "".join([base, webhook, '?V=1&', qstr])
-        else:
-            url = "".join([base, webhook, '?V=1'])
+        @param context: the context for db operations.
+        @param receiver_id: the unique ID of the receiver to delete.
+        """
+        receiver_obj = cls.load(context, receiver_id=receiver_id)
+        receiver_obj.release_channel()
+        ro.Receiver.delete(context, receiver_obj.id)
 
-        self.channel = {
-            'alarm_url': url
+        return
+
+    def _get_base_url(self):
+        base = None
+        service_cred = senlin_context.get_service_context()
+        kc = driver_base.SenlinDriver().identity(service_cred)
+        try:
+            base = kc.get_senlin_endpoint()
+        except exception.InternalError as ex:
+            msg = _('Senlin endpoint can not be found: %s.') % ex.message
+            LOG.warning(msg)
+
+        return base
+
+    def _build_conn_params(self, user, project):
+        """Build connection params for specific user and project.
+
+        :param user: The ID of the user for which a trust will be used.
+        :param project: The ID of the project for which a trust will be used.
+        :returns: A dict containing the required parameters for connection
+                  creation.
+        """
+        service_creds = senlin_context.get_service_context()
+        params = {
+            'username': service_creds.get('username'),
+            'password': service_creds.get('password'),
+            'auth_url': service_creds.get('auth_url'),
+            'user_domain_name': service_creds.get('user_domain_name')
         }
-        return self.channel
+
+        cred = co.Credential.get(oslo_context.get_current(),
+                                 user, project)
+        if cred is None:
+            raise exception.TrustNotFound(trustor=user)
+        params['trust_id'] = cred.cred['openstack']['trust']
+
+        return params
