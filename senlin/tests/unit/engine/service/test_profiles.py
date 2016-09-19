@@ -251,8 +251,8 @@ class ProfileTest(base.SenlinTestCase):
                                self.eng.profile_create,
                                self.ctx, 'p-2', spec)
 
-        self.assertEqual(exc.BadRequest, ex.exc_info[0])
-        self.assertEqual("The request is malformed: The specified profile "
+        self.assertEqual(exc.SpecValidationFailed, ex.exc_info[0])
+        self.assertEqual("The specified profile "
                          "type (FakeProfile-1.0) is not found.",
                          six.text_type(ex.exc_info[1]))
 
@@ -279,8 +279,49 @@ class ProfileTest(base.SenlinTestCase):
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.profile_create,
                                self.ctx, 'p-2', self.spec)
-        self.assertEqual(exc.BadRequest, ex.exc_info[0])
-        self.assertEqual('The request is malformed: BOOM',
+        self.assertEqual(exc.SpecValidationFailed, ex.exc_info[0])
+        self.assertEqual('BOOM',
+                         six.text_type(ex.exc_info[1]))
+
+    def test_profile_validate_pass(self):
+        self._setup_fakes()
+
+        expected_resp = {
+            'created_at': None,
+            'domain': '',
+            'id': None,
+            'metadata': None,
+            'name': 'validated_profile',
+            'project': 'profile_test_project',
+            'type': 'TestProfile-1.0',
+            'updated_at': None,
+            'user': 'test_user_id',
+            'spec': {
+                'type': 'TestProfile',
+                'version': '1.0',
+                'properties': {
+                    'INT': 1,
+                    'STR': 'str',
+                    'LIST': ['v1', 'v2'],
+                    'MAP': {'KEY1': 1, 'KEY2': 'v2'},
+                }
+            }
+        }
+
+        resp = self.eng.profile_validate(self.ctx, self.spec)
+        self.assertEqual(expected_resp, resp)
+
+    def test_profile_validate_failed(self):
+        self._setup_fakes()
+
+        mock_do_validate = self.patchobject(fakes.TestProfile, 'do_validate')
+        mock_do_validate.side_effect = exc.InvalidSpec(message='BOOM')
+
+        ex = self.assertRaises(rpc.ExpectedException,
+                               self.eng.profile_validate,
+                               self.ctx, self.spec)
+        self.assertEqual(exc.SpecValidationFailed, ex.exc_info[0])
+        self.assertEqual('BOOM',
                          six.text_type(ex.exc_info[1]))
 
     @mock.patch.object(pb.Profile, 'load')
@@ -394,8 +435,7 @@ class ProfileTest(base.SenlinTestCase):
     def test_profile_delete_profile_in_use(self, mock_find, mock_delete):
         x_obj = mock.Mock(id='PROFILE_ID')
         mock_find.return_value = x_obj
-        err = exc.ResourceBusyError(resource_type='profile',
-                                    resource_id='PROFILE_ID')
+        err = exc.EResourceBusy(type='profile', id='PROFILE_ID')
         mock_delete.side_effect = err
 
         ex = self.assertRaises(rpc.ExpectedException,

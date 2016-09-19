@@ -30,7 +30,7 @@ from senlin.api.openstack.v1 import webhooks
 
 
 class API(wsgi.Router):
-    '''WSGI router for Cluster v1 ReST API requests.'''
+    '''WSGI router for Cluster v1 REST API requests.'''
 
     def __init__(self, conf, **local_conf):
         self.conf = conf
@@ -83,6 +83,10 @@ class API(wsgi.Router):
                                "/profiles/{profile_id}",
                                action="delete",
                                conditions={'method': 'DELETE'})
+            sub_mapper.connect("profile_validate",
+                               "/profiles/validate",
+                               action="validate",
+                               conditions={'method': 'POST'})
 
         # Policy Types
         res = wsgi.Resource(policy_types.PolicyTypeController(conf))
@@ -122,6 +126,10 @@ class API(wsgi.Router):
                                "/policies/{policy_id}",
                                action="delete",
                                conditions={'method': 'DELETE'})
+            sub_mapper.connect("policy_validate",
+                               "/policies/validate",
+                               action="validate",
+                               conditions={'method': 'POST'})
 
         # Clusters
         res = wsgi.Resource(clusters.ClusterController(conf))

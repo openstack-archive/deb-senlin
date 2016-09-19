@@ -10,14 +10,16 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import eventlet
+
 from senlin.common.i18n import _
 from senlin.common import scaleutils
 from senlin.engine.actions import base
-from senlin.engine import cluster as cluster_mod
+from senlin.engine import cluster as cm
 from senlin.engine import event as EVENT
 from senlin.engine import node as node_mod
 from senlin.engine import senlin_lock
-from senlin.policies import base as policy_mod
+from senlin.policies import base as pb
 
 
 class NodeAction(base.Action):
@@ -58,35 +60,22 @@ class NodeAction(base.Action):
         if self.node.cluster_id and self.cause == base.CAUSE_RPC:
             # If node is created with target cluster specified,
             # check cluster size constraint
-            cluster = cluster_mod.Cluster.load(self.context,
-                                               self.node.cluster_id)
+            cluster = cm.Cluster.load(self.context, self.node.cluster_id)
             result = scaleutils.check_size_params(
                 cluster, cluster.desired_capacity + 1, None, None, True)
 
             if result:
                 return self.RES_ERROR, result
+            # Update cluster desired_capacity if node is already in db.
+            cluster.desired_capacity += 1
+            cluster.add_node(self.node)
+            cluster.store(self.context)
 
         res = self.node.do_create(self.context)
         if res:
-            if self.node.cluster_id and self.cause == base.CAUSE_RPC:
-                # Update cluster desired_capacity if node creation succeeded
-                cluster.desired_capacity += 1
-                cluster.store(self.context)
-                cluster.add_node(self.node)
             return self.RES_OK, _('Node created successfully.')
         else:
             return self.RES_ERROR, _('Node creation failed.')
-
-    def do_check(self):
-        """Handler for the NODE_check action.
-
-        :returns: A tuple containing the result and the corresponding reason.
-        """
-        res = self.node.do_check(self.context)
-        if res:
-            return self.RES_OK, _('Node status is ACTIVE.')
-        else:
-            return self.RES_ERROR, _('Node status is not ACTIVE.')
 
     def do_delete(self):
         """Handler for the NODE_DELETE action.
@@ -96,21 +85,31 @@ class NodeAction(base.Action):
         if self.node.cluster_id and self.cause == base.CAUSE_RPC:
             # If node belongs to a cluster, check size constraint
             # before deleting it
-            cluster = cluster_mod.Cluster.load(self.context,
-                                               self.node.cluster_id)
+            cluster = cm.Cluster.load(self.context, self.node.cluster_id)
             result = scaleutils.check_size_params(cluster,
                                                   cluster.desired_capacity - 1,
                                                   None, None, True)
             if result:
                 return self.RES_ERROR, result
 
-        res = self.node.do_delete(self.context)
-        if res:
-            if self.node.cluster_id and self.cause == base.CAUSE_RPC:
-                # Update cluster desired_capacity if node deletion succeeded
+            # handle grace_period
+            pd = self.data.get('deletion', None)
+            if pd:
+                grace_period = pd.get('grace_period', 0)
+                if grace_period:
+                    eventlet.sleep(grace_period)
+            # check if desired_capacity should be changed
+            do_reduce = True
+            pd = self.data.get('deletion', None)
+            if pd:
+                do_reduce = pd.get('reduce_desired_capacity', True)
+            if do_reduce:
                 cluster.desired_capacity -= 1
                 cluster.store(self.context)
-                cluster.remove_node(self.node.id)
+            cluster.remove_node(self.node.id)
+
+        res = self.node.do_delete(self.context)
+        if res:
             return self.RES_OK, _('Node deleted successfully.')
         else:
             return self.RES_ERROR, _('Node deletion failed.')
@@ -134,7 +133,7 @@ class NodeAction(base.Action):
         """
         cluster_id = self.inputs.get('cluster_id')
         # Check the size constraint of parent cluster
-        cluster = cluster_mod.Cluster.load(self.context, cluster_id)
+        cluster = cm.Cluster.load(self.context, cluster_id)
         new_capacity = cluster.desired_capacity + 1
         result = scaleutils.check_size_params(cluster, new_capacity,
                                               None, None, True)
@@ -154,8 +153,7 @@ class NodeAction(base.Action):
         :returns: A tuple containing the result and the corresponding reason.
         """
         # Check the size constraint of parent cluster
-        cluster = cluster_mod.Cluster.load(self.context,
-                                           self.node.cluster_id)
+        cluster = cm.Cluster.load(self.context, self.node.cluster_id)
         new_capacity = cluster.desired_capacity - 1
         result = scaleutils.check_size_params(cluster, new_capacity,
                                               None, None, True)
@@ -168,6 +166,17 @@ class NodeAction(base.Action):
             return self.RES_OK, _('Node successfully left cluster.')
         else:
             return self.RES_ERROR, _('Node failed in leaving cluster.')
+
+    def do_check(self):
+        """Handler for the NODE_check action.
+
+        :returns: A tuple containing the result and the corresponding reason.
+        """
+        res = self.node.do_check(self.context)
+        if res:
+            return self.RES_OK, _('Node status is ACTIVE.')
+        else:
+            return self.RES_ERROR, _('Node status is not ACTIVE.')
 
     def do_recover(self):
         """Handler for the NODE_RECOVER action.
@@ -200,26 +209,22 @@ class NodeAction(base.Action):
         :param dict kwargs: Parameters provided to the action, if any.
         :returns: A tuple containing the result and the related reason.
         """
-        # Since node.cluster_id could be reset to None in _execute progress,
+        # Since node.cluster_id could be reset to '' during action execution,
         # we record it here for policy check and cluster lock release.
         saved_cluster_id = self.node.cluster_id
-        if self.node.cluster_id:
-            if self.cause == base.CAUSE_RPC:
-                res = senlin_lock.cluster_lock_acquire(
-                    self.context,
-                    self.node.cluster_id, self.id, self.owner,
-                    senlin_lock.NODE_SCOPE, False)
-                if not res:
-                    return self.RES_RETRY, _('Failed in locking cluster')
+        if (saved_cluster_id and self.cause == base.CAUSE_RPC):
+            res = senlin_lock.cluster_lock_acquire(
+                self.context, self.node.cluster_id, self.id, self.owner,
+                senlin_lock.NODE_SCOPE, False)
+
+            if not res:
+                return self.RES_RETRY, _('Failed in locking cluster')
 
             self.policy_check(self.node.cluster_id, 'BEFORE')
-            if self.data['status'] != policy_mod.CHECK_OK:
-                # Don't emit message here since policy_check should have
-                # done it
-                if self.cause == base.CAUSE_RPC:
-                    senlin_lock.cluster_lock_release(
-                        self.node.cluster_id, self.id, senlin_lock.NODE_SCOPE)
-
+            if self.data['status'] != pb.CHECK_OK:
+                # Don't emit message since policy_check should have done it
+                senlin_lock.cluster_lock_release(saved_cluster_id, self.id,
+                                                 senlin_lock.NODE_SCOPE)
                 return self.RES_ERROR, 'Policy check: ' + self.data['reason']
 
         reason = ''
@@ -231,16 +236,17 @@ class NodeAction(base.Action):
                 reason = _('Failed in locking node')
             else:
                 res, reason = self._execute()
-                if res == self.RES_OK and saved_cluster_id is not None:
+                if (res == self.RES_OK and saved_cluster_id and
+                        self.cause == base.CAUSE_RPC):
                     self.policy_check(saved_cluster_id, 'AFTER')
-                    if self.data['status'] != policy_mod.CHECK_OK:
+                    if self.data['status'] != pb.CHECK_OK:
                         res = self.RES_ERROR
                         reason = 'Policy check: ' + self.data['reason']
                     else:
                         res = self.RES_OK
         finally:
             senlin_lock.node_lock_release(self.node.id, self.id)
-            if saved_cluster_id is not None and self.cause == base.CAUSE_RPC:
+            if saved_cluster_id and self.cause == base.CAUSE_RPC:
                 senlin_lock.cluster_lock_release(saved_cluster_id, self.id,
                                                  senlin_lock.NODE_SCOPE)
         return res, reason

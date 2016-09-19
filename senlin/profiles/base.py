@@ -19,10 +19,8 @@ import six
 
 from senlin.common import consts
 from senlin.common import context
-from senlin.common import exception
-from senlin.common.i18n import _
-from senlin.common.i18n import _LE
-from senlin.common.i18n import _LW
+from senlin.common import exception as exc
+from senlin.common.i18n import _, _LE, _LW
 from senlin.common import schema
 from senlin.common import utils
 from senlin.engine import environment
@@ -87,6 +85,8 @@ class Profile(object):
         """
 
         type_name, version = schema.get_spec_version(spec)
+        self.type_name = type_name
+        self.version = version
         type_str = "-".join([type_name, version])
 
         self.name = name
@@ -105,8 +105,10 @@ class Profile(object):
         self.updated_at = kwargs.get('updated_at', None)
 
         self.spec_data = schema.Spec(self.spec_schema, self.spec)
-        self.properties = schema.Spec(self.properties_schema,
-                                      self.spec.get(self.PROPERTIES, {}))
+        self.properties = schema.Spec(
+            self.properties_schema,
+            self.spec.get(self.PROPERTIES, {}),
+            version)
 
         if not self.id:
             # new object needs a context dict
@@ -118,7 +120,7 @@ class Profile(object):
     def from_object(cls, profile):
         '''Construct a profile from profile object.
 
-        :param profile: a Profle object that contains all required fields.
+        :param profile: a profile object that contains all required fields.
         '''
         kwargs = {
             'id': profile.id,
@@ -141,7 +143,7 @@ class Profile(object):
             profile = po.Profile.get(ctx, profile_id,
                                      project_safe=project_safe)
             if profile is None:
-                raise exception.ProfileNotFound(profile=profile_id)
+                raise exc.ProfileNotFound(profile=profile_id)
 
         return cls.from_object(profile)
 
@@ -194,9 +196,9 @@ class Profile(object):
         return profile.do_create(obj)
 
     @classmethod
-    def delete_object(cls, ctx, obj):
+    def delete_object(cls, ctx, obj, **params):
         profile = cls.load(ctx, profile_id=obj.profile_id)
-        return profile.do_delete(obj)
+        return profile.do_delete(obj, **params)
 
     @classmethod
     def update_object(cls, ctx, obj, new_profile_id=None, **params):
@@ -231,13 +233,16 @@ class Profile(object):
         profile = cls.load(ctx, profile_id=obj.profile_id)
         return profile.do_recover(obj, **options)
 
-    def validate(self):
+    def validate(self, validate_props=False):
         '''Validate the schema and the data provided.'''
         # general validation
         self.spec_data.validate()
         self.properties.validate()
 
         # TODO(Anyone): need to check the contents in self.CONTEXT
+
+        if validate_props:
+            self.do_validate(obj=self)
 
     @classmethod
     def get_schema(cls):
@@ -266,7 +271,7 @@ class Profile(object):
         """
         cred = co.Credential.get(oslo_context.get_current(), user, project)
         if cred is None:
-            raise exception.TrustNotFound(trustor=user)
+            raise exc.TrustNotFound(trustor=user)
 
         trust_id = cred.cred['openstack']['trust']
 
@@ -280,38 +285,38 @@ class Profile(object):
         """For subclass to override."""
         raise NotImplementedError
 
-    def do_delete(self, obj):
+    def do_delete(self, obj, **params):
         """For subclass to override."""
         raise NotImplementedError
 
     def do_update(self, obj, new_profile, **params):
         """For subclass to override."""
-        LOG.warn(_LW("Update operation not supported."))
+        LOG.warning(_LW("Update operation not supported."))
         return True
 
     def do_check(self, obj):
         """For subclass to override."""
-        LOG.warn(_LW("Check operation not supported."))
+        LOG.warning(_LW("Check operation not supported."))
         return True
 
     def do_get_details(self, obj):
         """For subclass to override."""
-        LOG.warn(_LW("Get_details operation not supported."))
+        LOG.warning(_LW("Get_details operation not supported."))
         return {}
 
     def do_join(self, obj, cluster_id):
         """For subclass to override to perform extra operations."""
-        LOG.warn(_LW("Join operation not specialized."))
+        LOG.warning(_LW("Join operation not specialized."))
         return True
 
     def do_leave(self, obj):
         """For subclass to override to perform extra operations."""
-        LOG.warn(_LW("Join operation not specialized."))
+        LOG.warning(_LW("Join operation not specialized."))
         return True
 
     def do_rebuild(self, obj):
         """For subclass to override."""
-        LOG.warn(_LW("Rebuild operation not specialized."))
+        LOG.warning(_LW("Rebuild operation not specialized."))
         return True
 
     def do_recover(self, obj, **options):
@@ -320,21 +325,32 @@ class Profile(object):
         :param obj: The node object to operate on.
         :param options: Keyword arguments for the recover operation.
         """
-        operation = options.get('operation', None)
+        operation = options.pop('operation', None)
+        # TODO(Qiming): The operaion input could be a list of operations.
+        if operation and not isinstance(operation, six.string_types):
+            operation = operation[0]
+
         if operation and operation != consts.RECOVER_RECREATE:
             LOG.error(_LE("Recover operation not supported: %s"), operation)
             return False
 
-        res = self.do_delete(obj)
-        if res:
-            try:
-                res = self.do_create(obj)
-            except Exception as ex:
-                LOG.exception(_('Failed at recovering obj: %s '),
-                              six.text_type(ex))
-                return False
-
+        try:
+            self.do_delete(obj, **options)
+        except exc.EResourceDeletion as ex:
+            raise exc.EResourceOperation(op='recovering', type='node',
+                                         id=obj.id, message=six.text_type(ex))
+        res = None
+        try:
+            res = self.do_create(obj)
+        except exc.EResourceCreation as ex:
+            raise exc.EResourceOperation(op='recovering', type='node',
+                                         id=obj.id, message=six.text_type(ex))
         return res
+
+    def do_validate(self, obj):
+        """For subclass to override."""
+        LOG.warning(_LW("Validate operation not supported."))
+        return True
 
     def to_dict(self):
         pb_dict = {

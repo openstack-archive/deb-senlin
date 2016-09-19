@@ -12,8 +12,10 @@
 
 import mock
 from oslo_context import context as oslo_context
+import six
 
 from senlin.common import consts
+from senlin.common import exception as exc
 from senlin.common import scaleutils
 from senlin.drivers import base as driver_base
 from senlin.engine import cluster_policy
@@ -38,7 +40,7 @@ class TestLoadBalancingPolicy(base.SenlinTestCase):
                 'pool': {
                     'protocol': 'HTTP',
                     'protocol_port': 80,
-                    'subnet': 'test-subnet',
+                    'subnet': 'internal-subnet',
                     'lb_method': 'ROUND_ROBIN',
                     'admin_state_up': True,
                     'session_persistence': {
@@ -48,7 +50,7 @@ class TestLoadBalancingPolicy(base.SenlinTestCase):
                 },
                 'vip': {
                     'address': '192.168.1.100',
-                    'subnet': 'test-subnet',
+                    'subnet': 'external-subnet',
                     'connection_limit': 500,
                     'protocol': 'HTTP',
                     'protocol_port': 80,
@@ -63,13 +65,16 @@ class TestLoadBalancingPolicy(base.SenlinTestCase):
                     'http_method': 'GET',
                     'url_path': '/index.html',
                     'expected_codes': '200,201,202'
-                }
+                },
+                'lb_status_timeout': 600
             }
         }
-        sd = mock.Mock()
-        self.patchobject(driver_base, 'SenlinDriver', return_value=sd)
+        self.sd = mock.Mock()
+        self.patchobject(driver_base, 'SenlinDriver', return_value=self.sd)
         self.lb_driver = mock.Mock()
-        sd.loadbalancing.return_value = self.lb_driver
+        self.net_driver = mock.Mock()
+        self.sd.loadbalancing.return_value = self.lb_driver
+        self.sd.network.return_value = self.net_driver
 
     @mock.patch.object(lb_policy.LoadBalancingPolicy, 'validate')
     def test_init(self, mock_validate):
@@ -81,15 +86,14 @@ class TestLoadBalancingPolicy(base.SenlinTestCase):
         self.assertEqual(self.spec['properties']['pool'], policy.pool_spec)
         self.assertEqual(self.spec['properties']['vip'], policy.vip_spec)
         self.assertIsNone(policy.lb)
-        mock_validate.assert_called_once_with()
 
     def test_init_with_default_value(self):
         spec = {
             'type': 'senlin.policy.loadbalance',
             'version': '1.0',
             'properties': {
-                'pool': {'subnet': 'test-subnet'},
-                'vip': {'subnet': 'test-subnet'}
+                'pool': {'subnet': 'internal-subnet'},
+                'vip': {'subnet': 'external-subnet'}
             }
         }
         default_spec = {
@@ -99,19 +103,20 @@ class TestLoadBalancingPolicy(base.SenlinTestCase):
                 'pool': {
                     'protocol': 'HTTP',
                     'protocol_port': 80,
-                    'subnet': 'test-subnet',
+                    'subnet': 'internal-subnet',
                     'lb_method': 'ROUND_ROBIN',
                     'admin_state_up': True,
                     'session_persistence': {},
                 },
                 'vip': {
                     'address': None,
-                    'subnet': 'test-subnet',
+                    'subnet': 'external-subnet',
                     'connection_limit': -1,
                     'protocol': 'HTTP',
                     'protocol_port': 80,
                     'admin_state_up': True,
-                }
+                },
+                'lb_status_timeout': 600
             }
         }
 
@@ -122,14 +127,63 @@ class TestLoadBalancingPolicy(base.SenlinTestCase):
         self.assertEqual('senlin.policy.loadbalance-1.0', policy.type)
         self.assertEqual(default_spec['properties']['pool'], policy.pool_spec)
         self.assertEqual(default_spec['properties']['vip'], policy.vip_spec)
+        self.assertEqual(default_spec['properties']['lb_status_timeout'],
+                         policy.lb_status_timeout)
         self.assertIsNone(policy.lb)
 
     @mock.patch.object(policy_base.Policy, 'validate')
     def test_validate(self, mock_validate):
         policy = lb_policy.LoadBalancingPolicy('test-policy', self.spec)
+        ctx = mock.Mock()
 
-        policy.validate()
-        mock_validate.assert_called_with()
+        res = policy.validate(ctx, False)
+
+        self.assertTrue(res)
+        mock_validate.assert_called_with(ctx, False)
+
+    @mock.patch.object(policy_base.Policy, '_build_conn_params')
+    @mock.patch.object(policy_base.Policy, 'validate')
+    def test_validate_pool_subnet_notfound(self, mock_validate, mock_params):
+        policy = lb_policy.LoadBalancingPolicy('test-policy', self.spec)
+        ctx = mock.Mock(user='user1', project='project1')
+        x_params = mock.Mock()
+        mock_params.return_value = x_params
+        self.net_driver.subnet_get = mock.Mock(
+            side_effect=exc.InternalError(code='404', message='not found'))
+
+        ex = self.assertRaises(exc.InvalidSpec, policy.validate, ctx, True)
+
+        mock_validate.assert_called_with(ctx, True)
+        mock_params.assert_called_once_with('user1', 'project1')
+        self.sd.network.assert_called_once_with(x_params)
+        self.net_driver.subnet_get.assert_called_once_with('internal-subnet')
+        self.assertEqual("The specified subnet 'internal-subnet' could not "
+                         "be found.", six.text_type(ex))
+
+    @mock.patch.object(policy_base.Policy, '_build_conn_params')
+    @mock.patch.object(policy_base.Policy, 'validate')
+    def test_validate_vip_subnet_notfound(self, mock_validate, mock_params):
+        policy = lb_policy.LoadBalancingPolicy('test-policy', self.spec)
+        ctx = mock.Mock(user='user1', project='project1')
+        x_params = mock.Mock()
+        mock_params.return_value = x_params
+        self.net_driver.subnet_get = mock.Mock(
+            side_effect=[
+                mock.Mock(),  # for the internal (pool) one
+                exc.InternalError(code='404', message='not found')
+            ]
+        )
+
+        ex = self.assertRaises(exc.InvalidSpec, policy.validate, ctx, True)
+
+        mock_validate.assert_called_with(ctx, True)
+        mock_params.assert_called_once_with('user1', 'project1')
+        self.sd.network.assert_called_once_with(x_params)
+        self.net_driver.subnet_get.assert_has_calls([
+            mock.call('internal-subnet'), mock.call('external-subnet')
+        ])
+        self.assertEqual("The specified subnet 'external-subnet' could not "
+                         "be found.", six.text_type(ex))
 
     @mock.patch.object(lb_policy.LoadBalancingPolicy, '_build_policy_data')
     @mock.patch.object(node_mod.Node, 'load_all')
@@ -163,8 +217,8 @@ class TestLoadBalancingPolicy(base.SenlinTestCase):
                                                          policy.hm_spec)
         m_load.assert_called_once_with(mock.ANY, cluster_id=cluster.id)
         member_add_calls = [
-            mock.call(node1, 'LB_ID', 'POOL_ID', 80, 'test-subnet'),
-            mock.call(node2, 'LB_ID', 'POOL_ID', 80, 'test-subnet')
+            mock.call(node1, 'LB_ID', 'POOL_ID', 80, 'internal-subnet'),
+            mock.call(node2, 'LB_ID', 'POOL_ID', 80, 'internal-subnet')
         ]
         self.lb_driver.member_add.assert_has_calls(member_add_calls)
         node1.data.update.assert_called_once_with({'lb_member': 'MEMBER1_ID'})
@@ -223,6 +277,17 @@ class TestLoadBalancingPolicy(base.SenlinTestCase):
         res = policy.attach(cluster)
         self.assertEqual((False, 'Failed in adding node into lb pool'), res)
         self.lb_driver.lb_delete.assert_called_once_with(**lb_data)
+
+    def test_get_delete_candidates_for_node_delete(self):
+        action = mock.Mock()
+        action.data = {}
+        action.action = consts.NODE_DELETE
+        action.node = mock.Mock(id='NODE_ID')
+        action.inputs = {}
+
+        policy = lb_policy.LoadBalancingPolicy('test-policy', self.spec)
+        res = policy._get_delete_candidates('CLUSTERID', action)
+        self.assertEqual(['NODE_ID'], res)
 
     def test_get_delete_candidates_no_deletion_data_del_nodes(self):
         action = mock.Mock()
@@ -456,19 +521,67 @@ class TestLoadBalancingPolicyOperations(base.SenlinTestCase):
 
     @mock.patch.object(node_mod.Node, 'load')
     @mock.patch.object(co.Cluster, 'get')
+    def test_post_op_node_create(self, m_cluster_get, m_node_load, m_extract,
+                                 m_load, m_conn):
+        ctx = mock.Mock()
+        cid = 'CLUSTER_ID'
+        cluster = mock.Mock(user='user1', project='project1')
+        m_cluster_get.return_value = cluster
+        node_obj = mock.Mock(data={})
+        action = mock.Mock(data={}, context=ctx, action=consts.NODE_CREATE)
+        action.node = mock.Mock(id='NODE_ID')
+        cp = mock.Mock()
+        policy_data = {
+            'loadbalancer': 'LB_ID',
+            'listener': 'LISTENER_ID',
+            'pool': 'POOL_ID',
+            'healthmonitor': 'HM_ID'
+        }
+        cp_data = {
+            'LoadBalancingPolicy': {
+                'version': '1.0',
+                'data': policy_data
+            }
+        }
+        cp.data = cp_data
+        self.lb_driver.member_add.side_effect = ['MEMBER_ID']
+        m_node_load.side_effect = [node_obj]
+        m_load.return_value = cp
+        m_extract.return_value = policy_data
+
+        policy = lb_policy.LoadBalancingPolicy('test-policy', self.spec)
+
+        # do it
+        res = policy.post_op(cid, action)
+
+        # assertion
+        self.assertIsNone(res)
+        m_cluster_get.assert_called_once_with(ctx, 'CLUSTER_ID')
+        m_conn.assert_called_once_with('user1', 'project1')
+        m_load.assert_called_once_with(ctx, cid, policy.id)
+        m_extract.assert_called_once_with(cp_data)
+        m_node_load.assert_called_once_with(ctx, node_id='NODE_ID')
+        self.lb_driver.member_add.assert_called_once_with(
+            node_obj, 'LB_ID', 'POOL_ID', 80, 'test-subnet')
+        node_obj.store.assert_called_once_with(ctx)
+        self.assertEqual({'lb_member': 'MEMBER_ID'}, node_obj.data)
+
+    @mock.patch.object(node_mod.Node, 'load')
+    @mock.patch.object(co.Cluster, 'get')
     def test_post_op_add_nodes(self, m_cluster_get, m_node_load, m_extract,
                                m_load, m_conn):
         cid = 'CLUSTER_ID'
-        cluster = mock.Mock()
+        cluster = mock.Mock(user='user1', project='project1')
         m_cluster_get.return_value = cluster
-        node1 = mock.Mock()
-        node2 = mock.Mock()
-        node1.data = {}
-        node2.data = {}
-        action = mock.Mock()
-        action.data = {'creation': {'nodes': ['NODE1_ID', 'NODE2_ID']}}
-        action.context = 'action_context'
-        action.action = consts.CLUSTER_RESIZE
+        node1 = mock.Mock(data={})
+        node2 = mock.Mock(data={})
+        action = mock.Mock(context='action_context',
+                           action=consts.CLUSTER_RESIZE,
+                           data={
+                               'creation': {
+                                   'nodes': ['NODE1_ID', 'NODE2_ID']
+                               }
+                           })
         cp = mock.Mock()
         policy_data = {
             'loadbalancer': 'LB_ID',
@@ -487,12 +600,15 @@ class TestLoadBalancingPolicyOperations(base.SenlinTestCase):
         m_node_load.side_effect = [node1, node2]
         m_load.return_value = cp
         m_extract.return_value = policy_data
-
         policy = lb_policy.LoadBalancingPolicy('test-policy', self.spec)
+
+        # do it
         res = policy.post_op(cid, action)
+
+        # assertions
         self.assertIsNone(res)
         m_cluster_get.assert_called_once_with('action_context', 'CLUSTER_ID')
-        m_conn.assert_called_once_with(cluster)
+        m_conn.assert_called_once_with('user1', 'project1')
         m_load.assert_called_once_with('action_context', cid, policy.id)
         m_extract.assert_called_once_with(cp_data)
         calls_node_load = [
@@ -544,13 +660,10 @@ class TestLoadBalancingPolicyOperations(base.SenlinTestCase):
     def test_post_op_add_nodes_failed(self, m_cluster_get, m_node_load,
                                       m_extract, m_load, m_conn):
         cluster_id = 'CLUSTER_ID'
-        node1 = mock.Mock()
-        node1.data = {}
-        action = mock.Mock()
-        action.data = {}
-        action.data = {'creation': {'nodes': ['NODE1_ID']}}
-        action.context = 'action_context'
-        action.action = consts.CLUSTER_RESIZE
+        node1 = mock.Mock(data={})
+        action = mock.Mock(data={'creation': {'nodes': ['NODE1_ID']}},
+                           context='action_context',
+                           action=consts.CLUSTER_RESIZE)
         self.lb_driver.member_add.return_value = None
         m_node_load.side_effect = [node1]
         m_extract.return_value = {
@@ -575,22 +688,18 @@ class TestLoadBalancingPolicyOperations(base.SenlinTestCase):
     def test_pre_op_del_nodes_ok(self, m_cluster_get, m_node_load, m_extract,
                                  m_load, m_conn):
         cluster_id = 'CLUSTER_ID'
-        cluster = mock.Mock()
+        cluster = mock.Mock(user='user1', project='project1')
         m_cluster_get.return_value = cluster
-        node1 = mock.Mock()
-        node1.data = {'lb_member': 'MEMBER1_ID'}
-        node2 = mock.Mock()
-        node2.data = {'lb_member': 'MEMBER2_ID'}
-        action = mock.Mock()
-        action.data = {}
-        action.data = {
-            'deletion': {
-                'count': 2,
-                'candidates': ['NODE1_ID', 'NODE2_ID']
-            }
-        }
-        action.context = 'action_context'
-        action.action = consts.CLUSTER_DEL_NODES
+        node1 = mock.Mock(data={'lb_member': 'MEMBER1_ID'})
+        node2 = mock.Mock(data={'lb_member': 'MEMBER2_ID'})
+        action = mock.Mock(
+            context='action_context', action=consts.CLUSTER_DEL_NODES,
+            data={
+                'deletion': {
+                    'count': 2,
+                    'candidates': ['NODE1_ID', 'NODE2_ID']
+                }
+            })
         cp = mock.Mock()
         policy_data = {
             'loadbalancer': 'LB_ID',
@@ -600,8 +709,7 @@ class TestLoadBalancingPolicyOperations(base.SenlinTestCase):
         }
         cp_data = {
             'LoadBalancingPolicy': {
-                'version': '1.0',
-                'data': policy_data
+                'version': '1.0', 'data': policy_data
             }
         }
         cp.data = cp_data
@@ -616,7 +724,7 @@ class TestLoadBalancingPolicyOperations(base.SenlinTestCase):
 
         self.assertIsNone(res)
         m_cluster_get.assert_called_once_with('action_context', 'CLUSTER_ID')
-        m_conn.assert_called_once_with(cluster)
+        m_conn.assert_called_once_with('user1', 'project1')
         m_load.assert_called_once_with('action_context', cluster_id, policy.id)
         m_extract.assert_called_once_with(cp_data)
         calls_node_load = [

@@ -26,12 +26,6 @@ ENGINE
       or policies.
     * Always do health check before any scaling actions.
 
-POLICY
-------
-
-  - Investigate the impact of node-create and node-delete on certain policies.
-
-
 MIDDLE PRIORITY
 ===============
 
@@ -68,6 +62,11 @@ DB
 LOW PRIORITY
 ============
 
+API
+---
+  - Add support to osprofiler which is a common library across all openstack
+    projects for tracing and profiling.
+
 ENGINE
 ------
   - Allow actions to be paused and resumed. This is important for some background
@@ -92,6 +91,12 @@ Receiver
 DOC
 -----
   - Provide a sample conf file for customizing senlin options.
+
+OTHERS
+------
+  - Integration with Glare for profile/policy specs storage. At least we may
+    want to enable users to retrieve/reference heat templates from glare when
+    creating profiles.
 
 
 .. _`Filtering Guidelines`: http://specs.openstack.org/openstack/api-wg/guidelines/pagination_filter_sort.html#filtering

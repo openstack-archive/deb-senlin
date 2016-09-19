@@ -29,6 +29,7 @@ class LoadBalancerDriver(base.DriverBase):
     """Load-balancing driver based on Neutron LBaaS V2 service."""
 
     def __init__(self, params):
+        self.lb_status_timeout = params.pop('lb_status_timeout')
         super(LoadBalancerDriver, self).__init__(params)
         self._nc = None
 
@@ -39,7 +40,7 @@ class LoadBalancerDriver(base.DriverBase):
         self._nc = neutronclient.NeutronClient(self.conn_params)
         return self._nc
 
-    def _wait_for_lb_ready(self, lb_id, timeout=60, ignore_not_found=False):
+    def _wait_for_lb_ready(self, lb_id, ignore_not_found=False):
         """Keep waiting until loadbalancer is ready
 
         This method will keep waiting until loadbalancer resource specified
@@ -47,12 +48,11 @@ class LoadBalancerDriver(base.DriverBase):
         its operating_status is ONLINE.
 
         :param lb_id: ID of the load-balancer to check.
-        :param timeout: timeout in seconds.
         :param ignore_not_found: if set to True, nonexistent loadbalancer
             resource is also an acceptable result.
         """
         waited = 0
-        while waited < timeout:
+        while waited < self.lb_status_timeout:
             try:
                 lb = self.nc().loadbalancer_get(lb_id)
             except exception.InternalError as ex:
@@ -72,8 +72,8 @@ class LoadBalancerDriver(base.DriverBase):
             LOG.debug(_('Waiting for loadbalancer %(lb)s to become ready'),
                       {'lb': lb_id})
 
-            eventlet.sleep(2)
-            waited += 2
+            eventlet.sleep(10)
+            waited += 10
 
         return False
 
@@ -82,7 +82,7 @@ class LoadBalancerDriver(base.DriverBase):
 
         :param vip: A dict containing the properties for the VIP;
         :param pool: A dict describing the pool of load-balancer members.
-        :param pool: A dict describing the health monitor.
+        :param hm: A dict describing the health monitor.
         """
         def _cleanup(msg, **kwargs):
             LOG.error(msg)
@@ -112,7 +112,7 @@ class LoadBalancerDriver(base.DriverBase):
 
         res = self._wait_for_lb_ready(lb.id)
         if res is False:
-            msg = _LE('Failed in creating load balancer (%s).') % lb.id
+            msg = _LE('Failed in creating loadbalancer (%s).') % lb.id
             del result['vip_address']
             _cleanup(msg, **result)
             return False, msg
@@ -267,16 +267,27 @@ class LoadBalancerDriver(base.DriverBase):
         node_detail = node.get_details(oslo_context.get_current())
         addresses = node_detail.get('addresses')
         if net_name not in addresses:
-            LOG.error(_LE('Node is not in subnet %(subnet)s'),
-                      {'subnet': subnet})
+            msg = _LE('Node is not in subnet %(subnet)s')
+            LOG.error(msg, {'subnet': subnet})
             return None
 
         # Use the first IP address if more than one are found in target network
-        address = addresses[net_name][0]
+        address = addresses[net_name][0]['addr']
         try:
+            # FIXME(Yanyan Hu): Currently, Neutron lbaasv2 service can not
+            # handle concurrent lb member operations well: new member creation
+            # deletion request will directly fail rather than being lined up
+            # when another operation is still in progress. In this workaround,
+            # loadbalancer status will be checked before creating lb member
+            # request is sent out. If loadbalancer keeps unready till waiting
+            # timeout, exception will be raised to fail member_add.
+            res = self._wait_for_lb_ready(lb_id)
+            if not res:
+                msg = _LE('Loadbalancer %s is not ready.') % lb_id
+                raise exception.Error(msg)
             member = self.nc().pool_member_create(pool_id, address, port,
                                                   subnet_obj.id)
-        except exception.InternalError as ex:
+        except (exception.InternalError, exception.Error) as ex:
             msg = _LE('Failed in creating lb pool member: %s.'
                       ) % six.text_type(ex)
             LOG.exception(msg)
@@ -297,8 +308,19 @@ class LoadBalancerDriver(base.DriverBase):
         :returns: True if the operation succeeded or False if errors occurred.
         """
         try:
+            # FIXME(Yanyan Hu): Currently, Neutron lbaasv2 service can not
+            # handle concurrent lb member operations well: new member creation
+            # deletion request will directly fail rather than being lined up
+            # when another operation is still in progress. In this workaround,
+            # loadbalancer status will be checked before deleting lb member
+            # request is sent out. If loadbalancer keeps unready till waiting
+            # timeout, exception will be raised to fail member_remove.
+            res = self._wait_for_lb_ready(lb_id)
+            if not res:
+                msg = _LE('Loadbalancer %s is not ready.') % lb_id
+                raise exception.Error(msg)
             self.nc().pool_member_delete(pool_id, member_id)
-        except exception.InternalError as ex:
+        except (exception.InternalError, exception.Error) as ex:
             msg = _LE('Failed in removing member %(m)s from pool %(p)s: '
                       '%(ex)s') % {'m': member_id, 'p': pool_id,
                                    'ex': six.text_type(ex)}

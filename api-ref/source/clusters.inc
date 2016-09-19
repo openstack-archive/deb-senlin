@@ -13,14 +13,19 @@ List clusters
 
 Lists clusters.
 
-Normal response codes: 200
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- serviceUnavailable (503)
+   - 200
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 503
 
 Request Parameters
 ------------------
@@ -40,6 +45,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-ID: request_id
   - clusters: clusters
   - created_at: created_at
   - data: cluster_data
@@ -76,14 +82,20 @@ Create cluster
 
 Creates a cluster.
 
-Error response codes: 201
+Response Codes
+--------------
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- internalError(500)
-- serviceUnavailable (503)
+.. rest_status_code:: success status.yaml
 
+   - 201
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 500
+   - 503
 
 Request Parameters
 ------------------
@@ -112,7 +124,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-  - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
   - cluster: cluster
   - created_at: created_at
   - data: cluster_data
@@ -149,15 +162,20 @@ Show cluster details
 
 Shows details for a cluster.
 
-Normal response codes: 200
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound(404)
-- serviceUnavailable (503)
+   - 200
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -172,6 +190,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-ID: request_id
   - cluster: cluster
   - created_at: created_at
   - data: cluster_data
@@ -208,18 +227,23 @@ Update cluster
 
 Updates a cluster.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
 
-Request
--------
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
+
+Request Parameters
+------------------
 
 .. rest_parameters:: parameters.yaml
 
@@ -243,7 +267,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-  - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
   - cluster: cluster
   - created_at: created_at
   - data: cluster_data
@@ -280,20 +305,24 @@ Delete cluster
 
 Deletes a cluster.
 
+Response Codes
+--------------
+
 A cluster cannot be deleted if there are still policies attached to it.
 It cannot be deleted if there are still receivers associated with it. In both
 cases, a 409 error will be returned.
 
-Normal response codes: 202
+.. rest_status_code:: success status.yaml
 
-Error response codes:
+   - 202
 
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- conflict(409)
-- serviceUnavailable (503)
+.. rest_status_code:: error status.yaml
 
+   - 401
+   - 403
+   - 404
+   - 409
+   - 503
 
 Request Parameters
 ------------------
@@ -308,7 +337,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-  - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 
 Resize a Cluster
@@ -318,16 +348,20 @@ Resize a Cluster
 
 Resize a cluster.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
 
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -358,7 +392,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 
 Scale-in a Cluster
@@ -368,16 +403,20 @@ Scale-in a Cluster
 
 Shrink the size of a cluster by a given number.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
 
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -403,7 +442,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 
 Scale-out a Cluster
@@ -413,15 +453,20 @@ Scale-out a Cluster
 
 Expand the size of a cluster by a given number.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -447,7 +492,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 
 Add nodes to a Cluster
@@ -457,15 +503,20 @@ Add nodes to a Cluster
 
 Add the specified list of nodes to the cluster.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -491,7 +542,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 
 Remove nodes from a Cluster
@@ -501,15 +553,20 @@ Remove nodes from a Cluster
 
 Remove the specified list of nodes from the cluster.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -535,7 +592,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 
 Attach a Policy to a Cluster
@@ -545,15 +603,20 @@ Attach a Policy to a Cluster
 
 Attach the specified policy to the cluster.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -579,7 +642,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 
 Detach a Policy from a Cluster
@@ -589,15 +653,20 @@ Detach a Policy from a Cluster
 
 Detach the specified policy from the cluster.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -622,7 +691,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 
 Update a Policy on a Cluster
@@ -632,15 +702,20 @@ Update a Policy on a Cluster
 
 Update the specified policy on the cluster.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -666,8 +741,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-  - location: location
-
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 Collect Attributes Across a Cluster
 ===================================
@@ -678,15 +753,20 @@ Collect Attributes Across a Cluster
 
 Aggregate an attribute value across all nodes in a cluster.
 
-Normal response codes: 200
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -695,17 +775,17 @@ Request Parameters
 
   - OpenStack-API-Version: microversion
   - cluster_id: cluster_id_url
-  - path: cluster_attrs_path
+  - path: path_url
 
 Response Parameters
 -------------------
 
 .. rest_parameters:: parameters.yaml
 
-   - cluster_attributes: cluster_attributes
-   - id: node_id
-   - value: cluster_attr_value
-
+  - X-OpenStack-Request-ID: request_id
+  - cluster_attributes: cluster_attributes
+  - id: node_id
+  - value: attr_value
 
 Check a Cluster's Health Status
 ===============================
@@ -714,15 +794,20 @@ Check a Cluster's Health Status
 
 Check the health status of all nodes in a cluster.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -747,7 +832,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 
 Recover a Cluster to a Healthy Status
@@ -757,15 +843,20 @@ Recover a Cluster to a Healthy Status
 
 Recover the health status for all nodes in a cluster.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -790,4 +881,5 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-  - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location

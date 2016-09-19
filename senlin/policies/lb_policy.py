@@ -23,6 +23,7 @@ from oslo_log import log as logging
 
 from senlin.common import constraints
 from senlin.common import consts
+from senlin.common import exception as exc
 from senlin.common.i18n import _
 from senlin.common.i18n import _LW
 from senlin.common import scaleutils
@@ -45,7 +46,7 @@ class LoadBalancingPolicy(base.Policy):
     the cluster (which could be created by the policy) when these actions are
     performed.
     """
-    VERSION = '1.0'
+    VERSION = '1.1'
 
     PRIORITY = 500
 
@@ -53,9 +54,11 @@ class LoadBalancingPolicy(base.Policy):
         ('AFTER', consts.CLUSTER_ADD_NODES),
         ('AFTER', consts.CLUSTER_SCALE_OUT),
         ('AFTER', consts.CLUSTER_RESIZE),
+        ('AFTER', consts.NODE_CREATE),
         ('BEFORE', consts.CLUSTER_DEL_NODES),
         ('BEFORE', consts.CLUSTER_SCALE_IN),
         ('BEFORE', consts.CLUSTER_RESIZE),
+        ('BEFORE', consts.NODE_DELETE),
     ]
 
     PROFILE_TYPE = [
@@ -63,9 +66,9 @@ class LoadBalancingPolicy(base.Policy):
     ]
 
     KEYS = (
-        POOL, VIP, HEALTH_MONITOR,
+        POOL, VIP, HEALTH_MONITOR, LB_STATUS_TIMEOUT
     ) = (
-        'pool', 'vip', 'health_monitor',
+        'pool', 'vip', 'health_monitor', 'lb_status_timeout'
     )
 
     _POOL_KEYS = (
@@ -160,7 +163,7 @@ class LoadBalancingPolicy(base.Policy):
                     default=True,
                 ),
                 POOL_SESSION_PERSISTENCE: schema.Map(
-                    _('Session pesistence configuration.'),
+                    _('Session persistence configuration.'),
                     schema={
                         PERSISTENCE_TYPE: schema.String(
                             _('Type of session persistence implementation.'),
@@ -214,7 +217,7 @@ class LoadBalancingPolicy(base.Policy):
             _('Health monitor for loadbalancer.'),
             schema={
                 HM_TYPE: schema.String(
-                    _('The type of probe sent by the load balancer to verify '
+                    _('The type of probe sent by the loadbalancer to verify '
                       'the member state.'),
                     constraints=[
                         constraints.AllowedValues(HEALTH_MONITOR_TYPES),
@@ -255,6 +258,13 @@ class LoadBalancingPolicy(base.Policy):
                 ),
             },
         ),
+        LB_STATUS_TIMEOUT: schema.Integer(
+            _('Time in second to wait for loadbalancer to be ready'
+              '(provisioning_status is ACTIVE and operating_status is '
+              'ONLINE) before and after senlin requests lbaas V2 service '
+              'for lb operations. '),
+            default=600,
+        )
     }
 
     def __init__(self, name, spec, **kwargs):
@@ -263,14 +273,35 @@ class LoadBalancingPolicy(base.Policy):
         self.pool_spec = self.properties.get(self.POOL, {})
         self.vip_spec = self.properties.get(self.VIP, {})
         self.hm_spec = self.properties.get(self.HEALTH_MONITOR, None)
-        self.validate()
+        self.lb_status_timeout = self.properties.get(self.LB_STATUS_TIMEOUT)
         self.lb = None
 
-    def validate(self):
-        super(LoadBalancingPolicy, self).validate()
+    def validate(self, context, validate_props=False):
+        super(LoadBalancingPolicy, self).validate(context, validate_props)
 
-        # validate subnet's exists
-        # subnet = self.nc.subnet_get(vip[self.VIP_SUBNET])
+        if not validate_props:
+            return True
+
+        params = self._build_conn_params(context.user, context.project)
+        nc = driver_base.SenlinDriver().network(params)
+
+        # validate pool subnet
+        name_or_id = self.pool_spec.get(self.POOL_SUBNET)
+        try:
+            nc.subnet_get(name_or_id)
+        except exc.InternalError:
+            msg = _("The specified %(key)s '%(value)s' could not be found."
+                    ) % {'key': self.POOL_SUBNET, 'value': name_or_id}
+            raise exc.InvalidSpec(message=msg)
+
+        # validate VIP subnet
+        name_or_id = self.vip_spec.get(self.VIP_SUBNET)
+        try:
+            nc.subnet_get(name_or_id)
+        except exc.InternalError:
+            msg = _("The specified %(key)s '%(value)s' could not be found."
+                    ) % {'key': self.VIP_SUBNET, 'value': name_or_id}
+            raise exc.InvalidSpec(message=msg)
 
     def attach(self, cluster):
         """Routine to be invoked when policy is to be attached to a cluster.
@@ -286,7 +317,8 @@ class LoadBalancingPolicy(base.Policy):
         nodes = nm.Node.load_all(oslo_context.get_current(),
                                  cluster_id=cluster.id)
 
-        params = self._build_conn_params(cluster)
+        params = self._build_conn_params(cluster.user, cluster.project)
+        params['lb_status_timeout'] = self.lb_status_timeout
         lb_driver = driver_base.SenlinDriver().loadbalancing(params)
 
         res, data = lb_driver.lb_create(self.vip_spec, self.pool_spec,
@@ -329,7 +361,8 @@ class LoadBalancingPolicy(base.Policy):
             contains a error message.
         """
         reason = _('LB resources deletion succeeded.')
-        params = self._build_conn_params(cluster)
+        params = self._build_conn_params(cluster.user, cluster.project)
+        params['lb_status_timeout'] = self.lb_status_timeout
         lb_driver = driver_base.SenlinDriver().loadbalancing(params)
 
         cp = cluster_policy.ClusterPolicy.load(oslo_context.get_current(),
@@ -366,7 +399,10 @@ class LoadBalancingPolicy(base.Policy):
         # policy or deletion policy is attached.
         candidates = None
         if deletion is None:
-            if action.action == consts.CLUSTER_DEL_NODES:
+            if action.action == consts.NODE_DELETE:
+                candidates = [action.node.id]
+                count = 1
+            elif action.action == consts.CLUSTER_DEL_NODES:
                 # Get candidates from action.input
                 candidates = action.inputs.get('candidates', [])
                 count = len(candidates)
@@ -418,7 +454,8 @@ class LoadBalancingPolicy(base.Policy):
             return
 
         db_cluster = co.Cluster.get(action.context, cluster_id)
-        params = self._build_conn_params(db_cluster)
+        params = self._build_conn_params(db_cluster.user, db_cluster.project)
+        params['lb_status_timeout'] = self.lb_status_timeout
         lb_driver = driver_base.SenlinDriver().loadbalancing(params)
         cp = cluster_policy.ClusterPolicy.load(action.context, cluster_id,
                                                self.id)
@@ -458,13 +495,17 @@ class LoadBalancingPolicy(base.Policy):
 
         # TODO(Yanyanhu): Need special handling for cross-az scenario
         # which is supported by Neutron lbaas.
-        creation = action.data.get('creation', None)
-        nodes_added = creation.get('nodes', []) if creation else []
-        if len(nodes_added) == 0:
-            return
+        if action.action == consts.NODE_CREATE:
+            nodes_added = [action.node.id]
+        else:
+            creation = action.data.get('creation', None)
+            nodes_added = creation.get('nodes', []) if creation else []
+            if len(nodes_added) == 0:
+                return
 
         db_cluster = co.Cluster.get(action.context, cluster_id)
-        params = self._build_conn_params(db_cluster)
+        params = self._build_conn_params(db_cluster.user, db_cluster.project)
+        params['lb_status_timeout'] = self.lb_status_timeout
         lb_driver = driver_base.SenlinDriver().loadbalancing(params)
         cp = cluster_policy.ClusterPolicy.load(action.context, cluster_id,
                                                self.id)

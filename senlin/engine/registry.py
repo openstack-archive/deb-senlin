@@ -11,12 +11,10 @@
 # under the License.
 
 import itertools
-import six
 
 from oslo_log import log as logging
 
-from senlin.common.i18n import _LI
-from senlin.common.i18n import _LW
+from senlin.common.i18n import _LI, _LW
 
 LOG = logging.getLogger(__name__)
 
@@ -83,7 +81,8 @@ class Registry(object):
         registry = self._registry
         if info is None:
             # delete this entry.
-            LOG.warning(_LW('Removing %(item)s from registry'), {'item': name})
+            msg = _LW("Removing %(item)s from registry")
+            LOG.warning(msg, {'item': name})
             registry.pop(name, None)
             return
 
@@ -98,8 +97,8 @@ class Registry(object):
             LOG.warning(_LW('Changing %(name)s from %(old)s to %(new)s'),
                         details)
         else:
-            LOG.info(_LI('Registering %(name)s -> %(value)s'), {
-                'name': name, 'value': str(info.plugin)})
+            msg = _LI('Registering %(name)s -> %(value)s')
+            LOG.info(msg, {'name': name, 'value': str(info.plugin)})
 
         info.user_provided = not self.is_global
         registry[name] = info
@@ -134,4 +133,4 @@ class Registry(object):
 
     def get_types(self):
         '''Return a list of valid plugin types.'''
-        return [{'name': name} for name in six.iterkeys(self._registry)]
+        return [{'name': name} for name in self._registry.keys()]

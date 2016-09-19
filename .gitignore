@@ -2,6 +2,7 @@ AUTHORS
 ChangeLog
 build
 cover
+cover-master
 dist
 etc/senlin/senlin.conf.sample
 releasenodes/build
@@ -22,3 +23,4 @@ tags
 .testrepository
 .tox
 .venv
+.DS_Store

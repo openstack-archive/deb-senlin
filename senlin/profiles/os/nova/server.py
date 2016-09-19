@@ -18,7 +18,7 @@ from oslo_utils import encodeutils
 import six
 
 from senlin.common import constraints
-from senlin.common import exception
+from senlin.common import exception as exc
 from senlin.common.i18n import _
 from senlin.common import schema
 from senlin.drivers import base as driver_base
@@ -237,13 +237,14 @@ class ServerProfile(base.Profile):
     }
 
     OP_NAMES = (
-        OP_REBOOT,
+        OP_REBOOT, OP_CHANGE_PASSWORD,
     ) = (
-        'reboot',
+        'reboot', 'change_password',
     )
 
     REBOOT_TYPE = 'type'
     REBOOT_TYPES = (REBOOT_SOFT, REBOOT_HARD) = ('SOFT', 'HARD')
+    ADMIN_PASSWORD = 'adminPass'
 
     OPERATIONS = {
         OP_REBOOT: schema.Operation(
@@ -257,7 +258,15 @@ class ServerProfile(base.Profile):
                     ]
                 )
             }
-        )
+        ),
+        OP_CHANGE_PASSWORD: schema.Operation(
+            _("Change the administrator password."),
+            schema={
+                ADMIN_PASSWORD: schema.String(
+                    _("New password for the administrator.")
+                )
+            }
+        ),
     }
 
     def __init__(self, type_name, name, **kwargs):
@@ -296,7 +305,67 @@ class ServerProfile(base.Profile):
         return self._neutronclient
 
     def do_validate(self, obj):
-        '''Validate if the spec has provided valid info for server creation.'''
+        """Validate if the spec has provided valid info for server creation.
+
+        :param obj: The node object.
+        """
+        # validate availability_zone
+        az_name = self.properties[self.AVAILABILITY_ZONE]
+        if az_name is not None:
+            res = self.nova(obj).validate_azs([az_name])
+            if not res:
+                msg = _("The specified %(key)s '%(value)s' could not be "
+                        "found.") % {'key': self.AVAILABILITY_ZONE,
+                                     'value': az_name}
+                raise exc.InvalidSpec(message=msg)
+
+        # validate flavor
+        flavor = self.properties[self.FLAVOR]
+        valid_flavors = self.nova(obj).flavor_list()
+        found = False
+        for f in valid_flavors:
+            if not f.is_disabled and (flavor == f.id or flavor == f.name):
+                found = True
+        if not found:
+            msg = _("The specified %(key)s '%(value)s' could not be found."
+                    ) % {'key': self.FLAVOR, 'value': flavor}
+            raise exc.InvalidSpec(message=msg)
+
+        # validate image
+        image = self.properties[self.IMAGE]
+        if image is not None:
+            valid_images = self.nova(obj).image_list()
+            found = False
+            for img in valid_images:
+                if image == img.id or image == img.name:
+                    found = True
+            if not found:
+                msg = _("The specified %(key)s '%(value)s' could not be "
+                        "found.") % {'key': self.IMAGE, 'value': image}
+                raise exc.InvalidSpec(message=msg)
+
+        # validate key_name
+        keypair = self.properties[self.KEY_NAME]
+        if keypair is not None:
+            valid_keys = self.nova(obj).keypair_list()
+            found = False
+            for key in valid_keys:
+                if keypair == key.name:
+                    found = True
+            if not found:
+                msg = _("The specified %(key)s '%(value)s' could not be "
+                        "found.") % {'key': self.KEY_NAME, 'value': keypair}
+                raise exc.InvalidSpec(message=msg)
+
+        # validate bdm conflicts
+        bdm = self.properties[self.BLOCK_DEVICE_MAPPING]
+        bdmv2 = self.properties[self.BLOCK_DEVICE_MAPPING_V2]
+        if all((bdm, bdmv2)):
+            msg = _("Only one of '%(key1)s' or '%(key2)s' can be specified, "
+                    "not both.") % {'key1': self.BLOCK_DEVICE_MAPPING,
+                                    'key2': self.BLOCK_DEVICE_MAPPING_V2}
+            raise exc.InvalidSpec(message=msg)
+
         return True
 
     def _resolve_bdm(self, bdm):
@@ -351,8 +420,11 @@ class ServerProfile(base.Profile):
             kwargs['name'] = obj.name
 
         metadata = self.properties[self.METADATA] or {}
+        metadata['cluster_node_id'] = obj.id
         if obj.cluster_id:
-            metadata['cluster'] = obj.cluster_id
+            metadata['cluster_id'] = obj.cluster_id
+            metadata['cluster_node_index'] = six.text_type(obj.index)
+
         kwargs['metadata'] = metadata
 
         block_device_mapping_v2 = self.properties[self.BLOCK_DEVICE_MAPPING_V2]
@@ -383,41 +455,56 @@ class ServerProfile(base.Profile):
                 hints.update({'group': group_id})
                 kwargs['scheduler_hints'] = hints
 
-        LOG.info('Creating server: %s' % kwargs)
-        server = self.nova(obj).server_create(**kwargs)
-        self.nova(obj).wait_for_server(server.id)
-        self.server_id = server.id
+        try:
+            server = self.nova(obj).server_create(**kwargs)
+            self.nova(obj).wait_for_server(server.id)
+            return server.id
+        except exc.InternalError as ex:
+            raise exc.EResourceCreation(type='server', message=ex.message)
 
-        return server.id
+    def do_delete(self, obj, **params):
+        """Delete the physical resource associated with the specified node.
 
-    def do_delete(self, obj):
-        self.server_id = obj.physical_id
-
+        :param obj: The node object to operate on.
+        :param kwargs params: Optional keyword arguments for the delete
+                              operation.
+        :returns: This operation always return True unless exception is
+                  caught.
+        :raises: `EResourceDeletion` if interaction with nova fails.
+        """
         if not obj.physical_id:
             return True
 
-        try:
-            self.nova(obj).server_delete(self.server_id)
-            self.nova(obj).wait_for_server_delete(self.server_id)
-        except Exception as ex:
-            LOG.error('Error: %s' % six.text_type(ex))
-            return False
+        server_id = obj.physical_id
+        ignore_missing = params.get('ignore_missing', True)
+        force = params.get('force', False)
 
-        return True
+        try:
+            if force:
+                self.nova(obj).server_force_delete(server_id, ignore_missing)
+            else:
+                self.nova(obj).server_delete(server_id, ignore_missing)
+            self.nova(obj).wait_for_server_delete(server_id)
+            return True
+        except exc.InternalError as ex:
+            raise exc.EResourceDeletion(type='server', id=server_id,
+                                        message=six.text_type(ex))
 
     def do_update(self, obj, new_profile=None, **params):
-        '''Perform update on the server.
+        """Perform update on the server.
 
         :param obj: the server to operate on
         :param new_profile: the new profile for the server.
         :param params: a dictionary of optional parameters.
-        '''
+        :returns: True if update was successful or False otherwise.
+        :raises: `EResourceUpdate` if operation fails.
+        """
         self.server_id = obj.physical_id
         if not self.server_id:
-            return True
+            return False
 
         if not new_profile:
-            return True
+            return False
 
         if not self.validate_for_update(new_profile):
             return False
@@ -425,8 +512,11 @@ class ServerProfile(base.Profile):
         # TODO(Yanyan Hu): Update block_device properties
 
         # Update basic properties of server
-        if not self._update_basic_properties(obj, new_profile):
-            return False
+        try:
+            self._update_basic_properties(obj, new_profile)
+        except exc.InternalError as ex:
+            raise exc.EResourceUpdate(type='server', id=self.server_id,
+                                      message=ex.message)
 
         # Update server flavor
         flavor = self.properties[self.FLAVOR]
@@ -434,10 +524,9 @@ class ServerProfile(base.Profile):
         if new_flavor != flavor:
             try:
                 self._update_flavor(obj, flavor, new_flavor)
-            except Exception as ex:
-                LOG.exception(_('Failed in updating server flavor: %s'),
-                              six.text_type(ex))
-                return False
+            except exc.InternalError as ex:
+                raise exc.EResourceUpdate(type='server', id=self.server_id,
+                                          message=ex.message)
 
         # Update server image
         old_passwd = self.properties.get(self.ADMIN_PASS)
@@ -449,10 +538,10 @@ class ServerProfile(base.Profile):
         if new_image != image:
             try:
                 self._update_image(obj, image, new_image, passwd)
-            except Exception as ex:
-                LOG.exception(_('Failed in updating server image: %s'),
-                              six.text_type(ex))
-                return False
+            except exc.InternalError as ex:
+                raise exc.EResourceUpdate(type='server', id=self.server_id,
+                                          message=ex.message)
+
         elif old_passwd != passwd:
             # TODO(Jun Xu): update server admin password
             pass
@@ -469,46 +558,46 @@ class ServerProfile(base.Profile):
             # We have network interfaces to be deleted and/or created
             try:
                 self._update_network(obj, networks_create, networks_delete)
-            except Exception as ex:
-                LOG.exception(_('Failed in updating server network: %s'),
-                              six.text_type(ex))
-                return False
-
+            except exc.InternalError as ex:
+                raise exc.EResourceUpdate(type='server', id=self.server_id,
+                                          message=ex.message)
         return True
 
     def _update_basic_properties(self, obj, new_profile):
-        '''Updating basic server properties including name, metadata'''
+        """Updating basic server properties including name, metadata.
 
+        :param obj: The node object to operate on.
+        :param new_profile: The new profile that may contain some changes of
+                            basic properties for update.
+        :returns: None
+        :raises: `InternalError` if the nova call fails.
+        """
         # Update server metadata
         metadata = self.properties[self.METADATA]
         new_metadata = new_profile.properties[self.METADATA]
         if new_metadata != metadata:
             if new_metadata is None:
                 new_metadata = {}
-            try:
-                self.nova(obj).server_metadata_update(self.server_id,
-                                                      new_metadata)
-            except Exception as ex:
-                LOG.exception(_('Failed in updating server metadata: %s'),
-                              six.text_type(ex))
-                return False
+            self.nova(obj).server_metadata_update(self.server_id, new_metadata)
 
         # Update server name
         name = self.properties[self.NAME]
         new_name = new_profile.properties[self.NAME]
         if new_name != name:
             attrs = {'name': new_name if new_name else obj.name}
-            try:
-                self.nova(obj).server_update(self.server_id, **attrs)
-            except Exception as ex:
-                LOG.exception(_('Failed in updating server name: %s'),
-                              six.text_type(ex))
-                return False
+            self.nova(obj).server_update(self.server_id, **attrs)
 
-        return True
+        return
 
     def _update_flavor(self, obj, old_flavor, new_flavor):
-        '''Updating server flavor'''
+        """Update server flavor.
+
+        :param obj: The node object to operate on.
+        :param old_flavor: The identity of the current flavor.
+        :param new_flavor: The identity of the new flavor.
+        :returns: ``None``.
+        :raises: `InternalError` when operation was a failure.
+        """
         res = self.nova(obj).flavor_find(old_flavor)
         old_flavor_id = res.id
         res = self.nova(obj).flavor_find(new_flavor)
@@ -519,19 +608,32 @@ class ServerProfile(base.Profile):
         try:
             self.nova(obj).server_resize(obj.physical_id, new_flavor_id)
             self.nova(obj).wait_for_server(obj.physical_id, 'VERIFY_RESIZE')
-        except Exception as ex:
-            LOG.error(_("Server resizing failed, revert it: %s"),
-                      six.text_type(ex))
-            self.nova(obj).server_resize_revert(obj.physical_id)
-            self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
-            raise exception.ResourceUpdateFailure(resource=obj.physical_id)
+        except exc.InternalError:
+            try:
+                self.nova(obj).server_resize_revert(obj.physical_id)
+                self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
+            except exc.InternalError:
+                raise
+            else:
+                raise
 
-        self.nova(obj).server_resize_confirm(obj.physical_id)
-        self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
+        try:
+            self.nova(obj).server_resize_confirm(obj.physical_id)
+            self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
+        except exc.InternalError:
+            raise
 
     def _update_image(self, obj, old_image, new_image, admin_password):
-        '''Updating server image'''
+        """Update image used by server node.
 
+        :param old: The node object to operate on.
+        :param old_image: The identity of the image currently used.
+        :param new_image: The identity of the new image to use.
+        :param admin_password: The new password for the administrative account
+                               if provided.
+        :returns: ``None``.
+        :raises: ``InternalError`` if operation was a failure.
+        """
         if old_image:
             res = self.nova(obj).image_find(old_image)
             image_id = res.id
@@ -539,22 +641,24 @@ class ServerProfile(base.Profile):
             server = self.nova(obj).server_get(obj.physical_id)
             image_id = server.image['id']
 
-        if new_image:
-            res = self.nova(obj).image_find(new_image)
-            new_image_id = res.id
-            if new_image_id != image_id:
-                # (Jun Xu): Not update name here if name changed,
-                # it should be updated  in do_update
-                self.nova(obj).server_rebuild(obj.physical_id, new_image_id,
-                                              self.properties.get(self.NAME),
-                                              admin_password)
-                self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
-        else:
+        if not new_image:
             # TODO(Yanyan Hu): Allow server update with new_image
             # set to None if Nova service supports it
-            LOG.error(_("Updating Nova server with image set to None is "
-                        "not supported by Nova."))
-            raise exception.ResourceUpdateFailure(resource=obj.physical_id)
+            message = _("Updating Nova server with image set to None is "
+                        "not supported by Nova.")
+            raise exc.InternalError(code=500, message=message)
+
+        res = self.nova(obj).image_find(new_image)
+        new_image_id = res.id
+        if new_image_id != image_id:
+            # (Jun Xu): Not update name here if name changed,
+            # it should be updated in do_update
+            self.nova(obj).server_rebuild(obj.physical_id, new_image_id,
+                                          self.properties.get(self.NAME),
+                                          admin_password)
+            self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
+
+        return
 
     def _update_network(self, obj, networks_create, networks_delete):
         '''Updating server network interfaces'''
@@ -620,23 +724,6 @@ class ServerProfile(base.Profile):
 
         return
 
-    def do_check(self, obj):
-        if not obj.physical_id:
-            return False
-
-        self.server_id = obj.physical_id
-
-        try:
-            server = self.nova(obj).server_get(self.server_id)
-        except Exception as ex:
-            LOG.error('Error: %s' % six.text_type(ex))
-            return False
-
-        if (server is None or server.status != 'ACTIVE'):
-            return False
-
-        return True
-
     def do_get_details(self, obj):
         known_keys = {
             'OS-DCF:diskConfig',
@@ -663,7 +750,7 @@ class ServerProfile(base.Profile):
 
         try:
             server = self.nova(obj).server_get(obj.physical_id)
-        except exception.InternalError as ex:
+        except exc.InternalError as ex:
             return {
                 'Error': {
                     'code': ex.code,
@@ -695,14 +782,7 @@ class ServerProfile(base.Profile):
                 details[key] = val if val else '-'
 
         # process network addresses
-        details['addresses'] = {}
-        for net in server_data['addresses']:
-            addresses = []
-            for addr in server_data['addresses'][net]:
-                # Ignore IPv6 address
-                if addr['version'] == 4:
-                    addresses.append(addr['addr'])
-            details['addresses'][net] = addresses
+        details['addresses'] = copy.deepcopy(server_data['addresses'])
 
         # process security groups
         sgroups = []
@@ -723,7 +803,8 @@ class ServerProfile(base.Profile):
             return False
 
         metadata = self.nova(obj).server_metadata_get(obj.physical_id) or {}
-        metadata['cluster'] = cluster_id
+        metadata['cluster_id'] = cluster_id
+        metadata['cluster_node_index'] = six.text_type(obj.index)
         self.nova(obj).server_metadata_update(obj.physical_id, metadata)
         return super(ServerProfile, self).do_join(obj, cluster_id)
 
@@ -731,7 +812,8 @@ class ServerProfile(base.Profile):
         if not obj.physical_id:
             return False
 
-        self.nova(obj).server_metadata_delete(obj.physical_id, ['cluster'])
+        keys = ['cluster_id', 'cluster_node_index']
+        self.nova(obj).server_metadata_delete(obj.physical_id, keys)
         return super(ServerProfile, self).do_leave(obj)
 
     def do_rebuild(self, obj):
@@ -742,39 +824,80 @@ class ServerProfile(base.Profile):
 
         try:
             server = self.nova(obj).server_get(self.server_id)
-        except Exception as ex:
-            LOG.exception(_('Failed at getting server: %s'),
-                          six.text_type(ex))
-            return False
+        except exc.InternalError as ex:
+            raise exc.EResourceOperation(op='rebuilding', type='server',
+                                         id=self.server_id,
+                                         message=six.text_type(ex))
 
         if server is None or server.image is None:
             return False
 
         image_id = server.image['id']
         admin_pass = self.properties.get(self.ADMIN_PASS)
-
         try:
             self.nova(obj).server_rebuild(self.server_id, image_id,
                                           self.properties.get(self.NAME),
                                           admin_pass)
             self.nova(obj).wait_for_server(self.server_id, 'ACTIVE')
-        except Exception as ex:
-            LOG.exception(_('Failed at rebuilding server: %s'),
-                          six.text_type(ex))
+        except exc.InternalError as ex:
+            raise exc.EResourceOperation(op='rebuilding', type='server',
+                                         id=self.server_id,
+                                         message=six.text_type(ex))
+        return True
+
+    def do_check(self, obj):
+        if not obj.physical_id:
+            return False
+
+        try:
+            server = self.nova(obj).server_get(obj.physical_id)
+        except exc.InternalError as ex:
+            raise exc.EResourceOperation(op='checking', type='server',
+                                         id=obj.physical_id,
+                                         message=six.text_type(ex))
+
+        if (server is None or server.status != 'ACTIVE'):
             return False
 
         return True
 
     def do_recover(self, obj, **options):
+        # NOTE: We do a 'get' not a 'pop' here, because the operations may
+        #       get fall back to the base class for handling
+        operation = options.get('operation', None)
 
-        if 'operation' in options:
-            if options['operation'] == 'REBUILD':
-                return self.do_rebuild(obj)
+        if operation and not isinstance(operation, six.string_types):
+            operation = operation[0]
+        # TODO(Qiming): Handle the case that the operation contains other
+        #               alternative recover operation
+        # Depends-On: https://review.openstack.org/#/c/359676/
+        if operation == 'REBUILD':
+            return self.do_rebuild(obj)
 
-        res = super(ServerProfile, self).do_recover(obj, **options)
-
-        return res
+        return super(ServerProfile, self).do_recover(obj, **options)
 
     def handle_reboot(self, obj, **options):
         """Handler for the reboot operation."""
-        pass
+        if not obj.physical_id:
+            return False
+
+        reboot_type = options.get(self.REBOOT_TYPE, self.REBOOT_SOFT)
+        if (not isinstance(reboot_type, six.string_types) or
+                reboot_type not in self.REBOOT_TYPES):
+            return False
+
+        self.nova(obj).server_reboot(obj.physical_id, reboot_type)
+        self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
+        return True
+
+    def handle_change_password(self, obj, **options):
+        """Handler for the change_password operation."""
+        if not obj.physical_id:
+            return False
+
+        password = options.get(self.ADMIN_PASSWORD, None)
+        if (password is None or not isinstance(password, six.string_types)):
+            return False
+
+        self.nova(obj).server_change_password(obj.physical_id, password)
+        return True

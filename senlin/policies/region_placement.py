@@ -21,8 +21,8 @@ import math
 from oslo_log import log as logging
 
 from senlin.common import consts
-from senlin.common.i18n import _
-from senlin.common.i18n import _LE
+from senlin.common import exception as exc
+from senlin.common.i18n import _, _LE
 from senlin.common import scaleutils
 from senlin.common import schema
 from senlin.drivers import base as driver_base
@@ -44,6 +44,7 @@ class RegionPlacementPolicy(base.Policy):
         ('BEFORE', consts.CLUSTER_SCALE_OUT),
         ('BEFORE', consts.CLUSTER_SCALE_IN),
         ('BEFORE', consts.CLUSTER_RESIZE),
+        ('BEFORE', consts.NODE_CREATE),
     ]
 
     PROFILE_TYPE = [
@@ -97,18 +98,35 @@ class RegionPlacementPolicy(base.Policy):
             }
         self.regions = regions
 
-    def _keystone(self, obj):
+    def _keystone(self, user, project):
         """Construct keystone client based on object.
 
-        :param obj: Object for which the client is created. It is expected to
-                    be None when retrieving an existing client. When creating
-                    a client, it contains the user and project to be used.
+        :param user: The ID of the requesting user.
+        :param project: The ID of the requesting project.
+        :returns: A reference to the keystone client.
         """
         if self._keystoneclient is not None:
             return self._keystoneclient
-        params = self._build_conn_params(obj)
+        params = self._build_conn_params(user, project)
         self._keystoneclient = driver_base.SenlinDriver().identity(params)
         return self._keystoneclient
+
+    def validate(self, context, validate_props=False):
+        super(RegionPlacementPolicy, self).validate(context, validate_props)
+
+        if not validate_props:
+            return True
+
+        kc = self._keystone(context.user, context.project)
+        input_regions = sorted(self.regions.keys())
+        valid_regions = kc.validate_regions(input_regions)
+        invalid_regions = sorted(set(input_regions) - set(valid_regions))
+        if invalid_regions:
+            msg = _("The specified regions '%(value)s' could not be "
+                    "found.") % {'value': invalid_regions}
+            raise exc.InvalidSpec(message=msg)
+
+        return True
 
     def _create_plan(self, current, regions, count, expand):
         """Compute a placement plan based on the weights of regions.
@@ -181,6 +199,14 @@ class RegionPlacementPolicy(base.Policy):
                  to create; 2) negative - number of nodes to delete; 3) 0 -
                  something wrong happened, and the policy check failed.
         """
+        if action.action == consts.NODE_CREATE:
+            # skip node if the context already contains a region_name
+            profile = action.node.rt['profile']
+            if 'region_name' in profile.properties[profile.CONTEXT]:
+                return 0
+            else:
+                return 1
+
         if action.action == consts.CLUSTER_RESIZE:
             if action.data.get('deletion', None):
                 return -action.data['deletion']['count']
@@ -231,8 +257,7 @@ class RegionPlacementPolicy(base.Policy):
             count = -count
 
         cluster = cm.Cluster.load(action.context, cluster_id)
-
-        kc = self._keystone(cluster)
+        kc = self._keystone(cluster.user, cluster.project)
 
         regions_good = kc.validate_regions(self.regions.keys())
         if len(regions_good) == 0:

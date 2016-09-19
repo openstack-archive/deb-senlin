@@ -12,15 +12,19 @@ List nodes
 
 Lists all nodes.
 
+Response Codes
+--------------
 
-Normal response codes: 200
+.. rest_status_code:: success status.yaml
 
-Error response codes:
+   - 200
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- serviceUnavailable (503)
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 503
 
 Request Parameters
 ------------------
@@ -41,6 +45,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-ID: request_id
   - nodes: nodes
   - cluster_id: cluster_id
   - created_at: created_at
@@ -75,14 +80,19 @@ Create node
 
 Creates a node.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 503
 
 Request Parameters
 ------------------
@@ -108,7 +118,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-  - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
   - node: node
   - cluster_id: cluster_id
   - created_at: created_at
@@ -143,16 +154,20 @@ Show node details
 
 Shows details about a node.
 
+Response Codes
+--------------
 
-Normal response codes: 200
+.. rest_status_code:: success status.yaml
 
-Error response codes:
+   - 200
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -168,6 +183,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-ID: request_id
   - node: node
   - cluster_id: cluster_id
   - created_at: created_at
@@ -202,16 +218,20 @@ Update node
 
 Updates a node.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
 
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -237,7 +257,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-  - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
   - node: node
   - cluster_id: cluster_id
   - created_at: created_at
@@ -272,15 +293,20 @@ Delete node
 
 Deletes a node.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -295,7 +321,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 
 Check a Node's Health
@@ -305,15 +332,20 @@ Check a Node's Health
 
 Check the health status of the specified node.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -336,7 +368,8 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location
 
 
 Recover a Node to Healthy Status
@@ -346,15 +379,20 @@ Recover a Node to Healthy Status
 
 Recover the specified node to its healthy status.
 
-Normal response codes: 202
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- badRequest (400)
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 202
+
+.. rest_status_code:: error status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -377,4 +415,5 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
-   - location: location
+  - X-OpenStack-Request-ID: request_id
+  - Location: location

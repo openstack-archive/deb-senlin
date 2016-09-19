@@ -11,14 +11,18 @@ List policy types
 
 Lists all supported policy types.
 
+Response Codes
+--------------
 
-Normal response codes: 200
+.. rest_status_code:: success status.yaml
 
-Error response codes:
+   - 200
 
-- unauthorized (401)
-- forbidden (403)
-- serviceUnavailable (503)
+.. rest_status_code:: error status.yaml
+
+   - 401
+   - 403
+   - 503
 
 Request Parameters
 ------------------
@@ -32,6 +36,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-Id: request_id
   - policy_types: policy_types
 
 Response Example
@@ -48,14 +53,19 @@ Show policy type details
 
 Shows details for a policy type.
 
-Normal response codes: 200
+Response Codes
+--------------
 
-Error response codes:
+.. rest_status_code:: success status.yaml
 
-- unauthorized (401)
-- forbidden (403)
-- notFound (404)
-- serviceUnavailable (503)
+   - 200
+
+.. rest_status_code:: error status.yaml
+
+   - 401
+   - 403
+   - 404
+   - 503
 
 Request Parameters
 ------------------
@@ -70,6 +80,7 @@ Response Parameters
 
 .. rest_parameters:: parameters.yaml
 
+  - X-OpenStack-Request-Id: request_id
   - policy_type: policy_type
   - name: policy_type_name
   - schema: policy_type_schema

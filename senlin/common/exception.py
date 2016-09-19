@@ -31,13 +31,12 @@ LOG = logging.getLogger(__name__)
 
 
 class SenlinException(Exception):
-    '''Base Senlin Exception.
+    """Base Senlin Exception.
 
-    To correctly use this class, inherit from it and define
-    a 'msg_fmt' property. That msg_fmt will get printf'd
-    with the keyword arguments provided to the constructor.
-    '''
-
+    To correctly use this class, inherit from it and define a 'msg_fmt'
+    property. That msg_fmt will get printed with the keyword arguments
+    provided to the constructor.
+    """
     message = _("An unknown exception occurred.")
 
     def __init__(self, **kwargs):
@@ -50,7 +49,7 @@ class SenlinException(Exception):
             # if kwargs doesn't match a variable in the message
             # log the issue and the kwargs
             LOG.exception(_LE('Exception in string format operation'))
-            for name, value in six.iteritems(kwargs):
+            for name, value in kwargs.items():
                 LOG.error("%s: %s" % (name, value))  # noqa
 
             if _FATAL_EXCEPTION_FORMAT_ERRORS:
@@ -207,8 +206,7 @@ class ActionNotFound(SenlinException):
 
 
 class ActionInProgress(SenlinException):
-    msg_fmt = _("Cluster %(cluster_name)s already has an action (%(action)s) "
-                "in progress.")
+    msg_fmt = _("The %(type)s %(id)s is in status %(status)s.")
 
 
 class EventNotFound(SenlinException):
@@ -220,24 +218,25 @@ class NodeNotOrphan(SenlinException):
 
 
 class InternalError(SenlinException):
-    '''A base class for internal exceptions in senlin.
+    """A base class for internal exceptions in senlin.
 
     The internal exception classes which inherit from :class:`InternalError`
     class should be translated to a user facing exception type if need to be
     made user visible.
-    '''
-    msg_fmt = _('ERROR %(code)s happens for %(message)s.')
-    message = _('Internal error happens')
+    """
+    msg_fmt = _("%(message)s")
+    message = _('Internal error happened')
 
     def __init__(self, **kwargs):
-        super(InternalError, self).__init__(**kwargs)
-        if 'code' in kwargs:
-            self.code = kwargs.get('code', 500)
-            self.message = kwargs.get('message', self.message)
+        self.code = kwargs.pop('code', 500)
+        self.message = kwargs.pop('message', self.message)
+        super(InternalError, self).__init__(
+            code=self.code, message=self.message, **kwargs)
 
 
-class ResourceBusyError(InternalError):
-    msg_fmt = _("The %(resource_type)s (%(resource_id)s) is busy now.")
+class EResourceBusy(InternalError):
+    # Internal exception, not to be exposed to end user.
+    msg_fmt = _("The %(type)s (%(id)s) is busy now.")
 
 
 class TrustNotFound(InternalError):
@@ -245,29 +244,29 @@ class TrustNotFound(InternalError):
     msg_fmt = _("The trust for trustor (%(trustor)s) could not be found.")
 
 
-class ResourceCreationFailure(InternalError):
+class EResourceCreation(InternalError):
     # Used when creating resources in other services
-    msg_fmt = _("Failed in creating %(rtype)s.")
+    msg_fmt = _("Failed in creating %(type)s: %(message)s.")
 
 
-class ResourceUpdateFailure(InternalError):
+class EResourceUpdate(InternalError):
     # Used when updating resources from other services
-    msg_fmt = _("Failed in updating %(resource)s.")
+    msg_fmt = _("Failed in updating %(type)s %(id)s: %(message)s.")
 
 
-class ResourceDeletionFailure(InternalError):
+class EResourceDeletion(InternalError):
     # Used when deleting resources from other services
-    msg_fmt = _("Failed in deleting %(resource)s.")
+    msg_fmt = _("Failed in deleting %(type)s %(id)s: %(message)s.")
+
+
+class EResourceOperation(InternalError):
+    # Used when operating resources from other services
+    msg_fmt = _("Failed in %(op)s %(type)s %(id)s: %(message)s")
 
 
 class ResourceNotFound(InternalError):
     # Used when retrieving resources from other services
     msg_fmt = _("The resource (%(resource)s) could not be found.")
-
-
-class ResourceStatusError(InternalError):
-    msg_fmt = _("The resource %(resource_id)s is in error status "
-                "- '%(status)s' due to '%(reason)s'.")
 
 
 class InvalidPlugin(InternalError):

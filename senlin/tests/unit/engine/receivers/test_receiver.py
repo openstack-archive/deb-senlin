@@ -12,12 +12,17 @@
 
 import mock
 from oslo_config import cfg
+from oslo_context import context as oslo_ctx
 from oslo_utils import timeutils
 import six
 
+from senlin.common import context
 from senlin.common import exception
 from senlin.common import utils as common_utils
-from senlin.engine import receiver as rb
+from senlin.drivers import base as driver_base
+from senlin.engine.receivers import base as rb
+from senlin.engine.receivers import webhook as rw
+from senlin.objects import credential as co
 from senlin.objects import receiver as ro
 from senlin.tests.unit.common import base
 from senlin.tests.unit.common import utils
@@ -140,7 +145,8 @@ class TestReceiver(base.SenlinTestCase):
         self.assertEqual(receiver.params, result.params)
         self.assertEqual(receiver.channel, result.channel)
 
-    def test_receiver_create(self):
+    @mock.patch.object(rw.Webhook, 'initialize_channel')
+    def test_receiver_create(self, mock_initialize_channel):
         cluster = mock.Mock()
         cluster.id = CLUSTER_ID
         receiver = rb.Receiver.create(self.context, 'webhook', cluster,
@@ -244,35 +250,139 @@ class TestReceiver(base.SenlinTestCase):
         result = rb.Receiver.load(self.context, receiver_id=receiver.id)
         self.assertEqual(expected, result.to_dict())
 
+    def test_release_channel(self):
+        receiver = self._create_receiver('test-receiver', UUID1)
+        receiver = rb.Receiver.load(self.context, UUID1)
+        res = receiver.release_channel()
+        self.assertIsNone(res)
 
-class TestWebhook(base.SenlinTestCase):
+    @mock.patch.object(ro.Receiver, 'delete')
+    @mock.patch.object(rb.Receiver, 'load')
+    def test_receiver_delete(self, mock_load, mock_delete):
+        mock_receiver = mock.Mock()
+        mock_receiver.id = 'test-receiver-id'
+        mock_load.return_value = mock_receiver
 
-    def test_initialize_channel(self):
-        cfg.CONF.set_override('host', 'web.com', 'webhook')
-        cfg.CONF.set_override('port', '1234', 'webhook')
-        webhook = rb.Webhook('webhook', CLUSTER_ID, 'FAKE_ACTION',
-                             id=UUID1)
-        channel = webhook.initialize_channel()
+        rb.Receiver.delete(self.context, 'test-receiver-id')
 
-        expected = {
-            'alarm_url': ('http://web.com:1234/v1/webhooks/%s/trigger'
-                          '?V=1' % UUID1)
-        }
-        self.assertEqual(expected, channel)
-        self.assertEqual(expected, webhook.channel)
+        mock_load.assert_called_once_with(self.context,
+                                          receiver_id='test-receiver-id')
+        mock_receiver.release_channel.assert_called_once_with()
+        mock_delete.assert_called_once_with(self.context, 'test-receiver-id')
 
-    def test_initialize_channel_with_params(self):
-        cfg.CONF.set_override('host', 'web.com', 'webhook')
-        cfg.CONF.set_override('port', '1234', 'webhook')
-        webhook = rb.Webhook(
+    @mock.patch.object(context, "get_service_context")
+    @mock.patch.object(driver_base, "SenlinDriver")
+    def test__get_base_url_succeeded(self, mock_senlin_driver,
+                                     mock_get_service_context):
+        cfg.CONF.set_override('default_region_name', 'RegionOne')
+        fake_driver = mock.Mock()
+        fake_kc = mock.Mock()
+        fake_cred = mock.Mock()
+        mock_senlin_driver.return_value = fake_driver
+        fake_driver.identity.return_value = fake_kc
+        mock_get_service_context.return_value = fake_cred
+
+        fake_kc.get_senlin_endpoint.return_value = "http://web.com:1234/v1"
+
+        receiver = rb.Receiver(
             'webhook', CLUSTER_ID, 'FAKE_ACTION',
             id=UUID1, params={'KEY': 884, 'FOO': 'BAR'})
 
-        channel = webhook.initialize_channel()
+        res = receiver._get_base_url()
+        self.assertEqual("http://web.com:1234/v1", res)
+        mock_get_service_context.assert_called_once_with()
+        fake_kc.get_senlin_endpoint.assert_called_once_with()
 
-        expected = {
-            'alarm_url': ('http://web.com:1234/v1/webhooks/%s/trigger'
-                          '?V=1&FOO=BAR&KEY=884' % UUID1)
+    @mock.patch.object(context, "get_service_context")
+    @mock.patch.object(driver_base, "SenlinDriver")
+    def test__get_base_url_failed_get_endpoint_exception(
+            self, mock_senlin_driver, mock_get_service_context):
+        cfg.CONF.set_override('default_region_name', 'RegionOne')
+        fake_driver = mock.Mock()
+        fake_kc = mock.Mock()
+        fake_cred = mock.Mock()
+        mock_senlin_driver.return_value = fake_driver
+        fake_driver.identity.return_value = fake_kc
+        mock_get_service_context.return_value = fake_cred
+
+        fake_kc.get_senlin_endpoint.side_effect = exception.InternalError(
+            message='Error!')
+
+        receiver = rb.Receiver(
+            'webhook', CLUSTER_ID, 'FAKE_ACTION',
+            id=UUID1, params={'KEY': 884, 'FOO': 'BAR'})
+
+        res = receiver._get_base_url()
+        self.assertIsNone(res)
+        mock_get_service_context.assert_called_once_with()
+        fake_kc.get_senlin_endpoint.assert_called_once_with()
+
+    @mock.patch.object(co.Credential, 'get')
+    @mock.patch.object(context, 'get_service_context')
+    @mock.patch.object(oslo_ctx, 'get_current')
+    def test_build_conn_params(self, mock_get_current, mock_get_service_ctx,
+                               mock_cred_get):
+        user = 'user1'
+        project = 'project1'
+        service_cred = {
+            'auth_url': 'AUTH_URL',
+            'username': 'senlin',
+            'user_domain_name': 'default',
+            'password': '123'
         }
-        self.assertEqual(expected, channel)
-        self.assertEqual(expected, webhook.channel)
+        current_ctx = {
+            'auth_url': 'auth_url',
+            'user_name': user,
+            'user_domain_name': 'default',
+            'password': '456'
+        }
+        cred_info = {
+            'openstack': {
+                'trust': 'TRUST_ID',
+            }
+        }
+
+        cred = mock.Mock()
+        cred.cred = cred_info
+        mock_get_service_ctx.return_value = service_cred
+        mock_get_current.return_value = current_ctx
+        mock_cred_get.return_value = cred
+
+        receiver = self._create_receiver('receiver-1', UUID1)
+        receiver = rb.Receiver.load(self.context, receiver_obj=receiver)
+        expected_result = {
+            'auth_url': 'AUTH_URL',
+            'username': 'senlin',
+            'user_domain_name': 'default',
+            'password': '123',
+            'trust_id': 'TRUST_ID'
+        }
+        res = receiver._build_conn_params(user, project)
+        self.assertEqual(expected_result, res)
+        mock_get_service_ctx.assert_called_once_with()
+        mock_cred_get.assert_called_once_with(current_ctx, user, project)
+
+    @mock.patch.object(co.Credential, 'get')
+    @mock.patch.object(context, 'get_service_context')
+    @mock.patch.object(oslo_ctx, 'get_current')
+    def test_build_conn_params_trust_not_found(
+            self, mock_get_current, mock_get_service_ctx, mock_cred_get):
+
+        user = 'user1'
+        project = 'project1'
+        service_cred = {
+            'auth_url': 'AUTH_URL',
+            'username': 'senlin',
+            'user_domain_name': 'default',
+            'password': '123'
+        }
+
+        mock_get_service_ctx.return_value = service_cred
+        mock_cred_get.return_value = None
+
+        receiver = self._create_receiver('receiver-1', UUID1)
+        receiver = rb.Receiver.load(self.context, receiver_obj=receiver)
+        ex = self.assertRaises(exception.TrustNotFound,
+                               receiver._build_conn_params, user, project)
+        msg = "The trust for trustor (user1) could not be found."
+        self.assertEqual(msg, six.text_type(ex))

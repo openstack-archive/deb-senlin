@@ -103,6 +103,10 @@ class EngineClient(object):
                           self.make_msg('profile_delete',
                                         identity=identity))
 
+    def profile_validate(self, ctxt, spec):
+        return self.call(ctxt,
+                         self.make_msg('profile_validate', spec=spec))
+
     def policy_type_list(self, ctxt):
         return self.call(ctxt, self.make_msg('policy_type_list'))
 
@@ -135,6 +139,10 @@ class EngineClient(object):
         return rpc_method(ctxt,
                           self.make_msg('policy_delete',
                                         identity=identity))
+
+    def policy_validate(self, ctxt, spec):
+        return self.call(ctxt,
+                         self.make_msg('policy_validate', spec=spec))
 
     def cluster_list(self, ctxt, limit=None, marker=None, sort=None,
                      filters=None, project_safe=True):

@@ -13,13 +13,15 @@
 from senlin.common import constraints
 from senlin.common import consts
 from senlin.common.i18n import _
+from senlin.common import scaleutils
 from senlin.common import schema
 from senlin.engine import health_manager
+from senlin.objects import cluster as co
 from senlin.policies import base
 
 
 class HealthPolicy(base.Policy):
-    '''Policy for health management of a cluster.'''
+    """Policy for health management of a cluster."""
 
     VERSION = '1.0'
 
@@ -27,7 +29,15 @@ class HealthPolicy(base.Policy):
 
     TARGET = [
         ('BEFORE', consts.CLUSTER_CHECK),
+        ('BEFORE', consts.CLUSTER_DEL_NODES),
         ('BEFORE', consts.CLUSTER_RECOVER),
+        ('BEFORE', consts.CLUSTER_RESIZE),
+        ('BEFORE', consts.CLUSTER_SCALE_IN),
+        ('BEFORE', consts.NODE_DELETE),
+        ('AFTER', consts.CLUSTER_DEL_NODES),
+        ('AFTER', consts.CLUSTER_SCALE_IN),
+        ('AFTER', consts.CLUSTER_RESIZE),
+        ('AFTER', consts.NODE_DELETE),
     ]
 
     # Should be ANY if profile provides health check support?
@@ -45,9 +55,11 @@ class HealthPolicy(base.Policy):
     )
 
     DETECTION_TYPES = (
-        VM_LIFECYCLE_EVENTS, NODE_STATUS_POLLING, LB_STATUS_POLLING,
+        VM_LIFECYCLE_EVENTS, NODE_STATUS_POLLING,
+        # LB_STATUS_POLLING,
     ) = (
-        'VM_LIFECYCLE_EVENTS', 'NODE_STATUS_POLLING', 'LB_STATUS_POLLING',
+        'VM_LIFECYCLE_EVENTS', 'NODE_STATUS_POLLING',
+        # 'LB_STATUS_POLLING',
     )
 
     _DETECTION_OPTIONS = (
@@ -63,15 +75,19 @@ class HealthPolicy(base.Policy):
     )
 
     RECOVERY_ACTION_VALUES = (
-        REBOOT, REBUILD, MIGRATE, EVACUATE, RECREATE, NOP
+        REBUILD, RECREATE,
+        # REBOOT, MIGRATE, EVACUATE,
     ) = (
-        'REBOOT', 'REBUILD', 'MIGRATE', 'EVACUATE', 'RECREATE', 'NOP',
+        "REBUILD", "RECREATE",
+        # 'REBOOT', 'MIGRATE', 'EVACUATE',
     )
 
     FENCING_OPTION_VALUES = (
-        COMPUTE, STORAGE, NETWORK,
+        COMPUTE,
+        # STORAGE, NETWORK,
     ) = (
-        'COMPUTE', 'STORAGE', 'NETWORK'
+        'COMPUTE',
+        # 'STORAGE', 'NETWORK'
     )
 
     properties_schema = {
@@ -97,6 +113,7 @@ class HealthPolicy(base.Policy):
             },
             required=True,
         ),
+
         RECOVERY: schema.Map(
             _('Policy aspect for node failure recovery.'),
             schema={
@@ -130,13 +147,16 @@ class HealthPolicy(base.Policy):
         self.interval = options[self.DETECTION_INTERVAL]
         recover_settings = self.properties[self.RECOVERY]
         self.recover_actions = recover_settings[self.RECOVERY_ACTIONS]
+        self.fencing_types = recover_settings[self.RECOVERY_FENCING]
 
     def attach(self, cluster):
         """"Hook for policy attach.
 
         Register the cluster for health management.
-        """
 
+        :param cluster: The target cluster.
+        :return: A tuple comprising execution result and policy data.
+        """
         kwargs = {
             'check_type': self.check_type,
             'interval': self.interval,
@@ -153,21 +173,54 @@ class HealthPolicy(base.Policy):
         return True, self._build_policy_data(data)
 
     def detach(self, cluster):
-        '''Hook for policy detach.
+        """Hook for policy detach.
 
         Unregister the cluster for health management.
-        '''
-
+        :param cluster: The target cluster.
+        :returns: A tuple comprising the execution result and reason.
+        """
         health_manager.unregister(cluster.id)
         return True, ''
 
     def pre_op(self, cluster_id, action, **args):
-        # Ignore actions that are not required to be processed at this stage
-        if action.action != consts.CLUSTER_RECOVER:
+        """Hook before action execution.
+
+        One of the task for this routine is to disable health policy if the
+        action is a request that will shrink the cluster. The reason is that
+        the policy may attempt to recover nodes that are to be deleted.
+
+        :param cluster_id: The ID of the target cluster.
+        :param action: The action to be examined.
+        :param kwargs args: Other keyword arguments to be checked.
+        :returns: Boolean indicating whether the checking passed.
+        """
+        if action.action in (consts.CLUSTER_SCALE_IN,
+                             consts.CLUSTER_DEL_NODES,
+                             consts.NODE_DELETE):
+            health_manager.disable(cluster_id)
             return True
 
+        if action.action == consts.CLUSTER_RESIZE:
+            deletion = action.data.get('deletion', None)
+            if deletion:
+                health_manager.disable(cluster_id)
+                return True
+
+            db_cluster = co.Cluster.get(action.context, cluster_id,
+                                        project_safe=True)
+            res, reason = scaleutils.parse_resize_params(action, db_cluster)
+            if res == base.CHECK_ERROR:
+                action.data['status'] = base.CHECK_ERROR
+                action.data['reason'] = reason
+                return False
+
+            if action.data.get('deletion', None):
+                health_manager.disable(cluster_id)
+                return True
+
         pd = {
-            'recover_action': self.recover_actions[0],
+            'recover_action': self.recover_actions,
+            'fencing': self.fencing_types,
         }
         action.data.update({'health': pd})
         action.store(action.context)
@@ -175,11 +228,39 @@ class HealthPolicy(base.Policy):
         return True
 
     def post_op(self, cluster_id, action, **args):
-        # Ignore irrelevant action here
-        if action.action not in (consts.CLUSTER_CHECK,
-                                 consts.CLUSTER_RECOVER):
+        """Hook before action execution.
+
+        One of the task for this routine is to re-enable health policy if the
+        action is a request that will shrink the cluster thus the policy has
+        been temporarily disabled.
+
+        :param cluster_id: The ID of the target cluster.
+        :param action: The action to be examined.
+        :param kwargs args: Other keyword arguments to be checked.
+        :returns: Boolean indicating whether the checking passed.
+        """
+        if action.action in (consts.CLUSTER_SCALE_IN,
+                             consts.CLUSTER_DEL_NODES,
+                             consts.NODE_DELETE):
+            health_manager.enable(cluster_id)
             return True
 
-        # TODO(anyone): subscribe to vm-lifecycle-events for the specified VM
-        #               or add vm to the list of VM status polling
+        if action.action == consts.CLUSTER_RESIZE:
+            deletion = action.data.get('deletion', None)
+            if deletion:
+                health_manager.enable(cluster_id)
+                return True
+
+            db_cluster = co.Cluster.get(action.context, cluster_id,
+                                        project_safe=True)
+            res, reason = scaleutils.parse_resize_params(action, db_cluster)
+            if res == base.CHECK_ERROR:
+                action.data['status'] = base.CHECK_ERROR
+                action.data['reason'] = reason
+                return False
+
+            if action.data.get('deletion', None):
+                health_manager.enable(cluster_id)
+                return True
+
         return True
