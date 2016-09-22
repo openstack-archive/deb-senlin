@@ -98,7 +98,7 @@ class ClusterTest(base.SenlinTestCase):
     def test_cluster_find_not_found(self, mock_get_name):
         mock_get_name.return_value = None
 
-        ex = self.assertRaises(exc.ClusterNotFound,
+        ex = self.assertRaises(exc.ResourceNotFound,
                                self.eng.cluster_find,
                                self.ctx, 'bogus')
 
@@ -207,12 +207,13 @@ class ClusterTest(base.SenlinTestCase):
 
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_get_not_found(self, mock_find):
-        mock_find.side_effect = exc.ClusterNotFound(cluster='Bogus')
+        mock_find.side_effect = exc.ResourceNotFound(type='cluster',
+                                                     id='Bogus')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_get,
                                self.ctx, 'Bogus')
-        self.assertEqual(exc.ClusterNotFound, ex.exc_info[0])
+        self.assertEqual(exc.ResourceNotFound, ex.exc_info[0])
 
     @mock.patch.object(service.EngineService, 'check_cluster_quota')
     @mock.patch.object(su, 'check_size_params')
@@ -311,7 +312,8 @@ class ClusterTest(base.SenlinTestCase):
     @mock.patch.object(service.EngineService, 'profile_find')
     def test_cluster_create_profile_not_found(self, mock_find, mock_quota):
         mock_quota.return_value = None
-        mock_find.side_effect = exc.ProfileNotFound(profile='Bogus')
+        mock_find.side_effect = exc.ResourceNotFound(type='profile',
+                                                     id='Bogus')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_create,
@@ -319,7 +321,7 @@ class ClusterTest(base.SenlinTestCase):
 
         self.assertEqual(exc.BadRequest, ex.exc_info[0])
         self.assertEqual("The request is malformed: "
-                         "The specified profile 'Bogus' is not found.",
+                         "The specified profile (Bogus) could not be found.",
                          six.text_type(ex.exc_info[1]))
         mock_find.assert_called_once_with(self.ctx, 'Bogus')
 
@@ -450,12 +452,13 @@ class ClusterTest(base.SenlinTestCase):
 
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_update_cluster_not_found(self, mock_find):
-        mock_find.side_effect = exc.ClusterNotFound(cluster='Bogus')
+        mock_find.side_effect = exc.ResourceNotFound(type='cluster',
+                                                     id='Bogus')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_update,
                                self.ctx, 'Bogus')
-        self.assertEqual(exc.ClusterNotFound, ex.exc_info[0])
+        self.assertEqual(exc.ResourceNotFound, ex.exc_info[0])
 
     @mock.patch.object(cm.Cluster, 'load')
     @mock.patch.object(service.EngineService, 'cluster_find')
@@ -486,7 +489,7 @@ class ClusterTest(base.SenlinTestCase):
 
         mock_profile.side_effect = [
             mock.Mock(type='FAKE_TYPE', id='OLD_ID'),
-            exc.ProfileNotFound(profile='Bogus')
+            exc.ResourceNotFound(type='profile', id='Bogus')
         ]
 
         ex = self.assertRaises(rpc.ExpectedException,
@@ -495,7 +498,7 @@ class ClusterTest(base.SenlinTestCase):
 
         self.assertEqual(exc.BadRequest, ex.exc_info[0])
         self.assertEqual("The request is malformed: "
-                         "The specified profile 'Bogus' is not found.",
+                         "The specified profile (Bogus) could not be found.",
                          six.text_type(ex.exc_info[1]))
         mock_find.assert_called_once_with(self.ctx, 'CLUSTER')
         mock_load.assert_called_once_with(self.ctx, dbcluster=x_obj)
@@ -642,7 +645,7 @@ class ClusterTest(base.SenlinTestCase):
     @mock.patch.object(dispatcher, 'start_action')
     def test_cluster_delete(self, notify, mock_find, mock_policies,
                             mock_receivers, mock_action):
-        x_obj = mock.Mock(id='12345678AB', status='ACTIVE')
+        x_obj = mock.Mock(id='12345678AB', status='ACTIVE', dependents={})
         mock_find.return_value = x_obj
         mock_policies.return_value = []
         mock_receivers.return_value = []
@@ -664,14 +667,29 @@ class ClusterTest(base.SenlinTestCase):
         notify.assert_called_once_with()
 
     @mock.patch.object(service.EngineService, 'cluster_find')
+    def test_cluster_delete_contain_container(self, mock_find):
+        dependents = {'containers': ['container1']}
+        cluster = mock.Mock(id='cluster1', status='ACTIVE',
+                            dependents=dependents)
+        mock_find.return_value = cluster
+        identity = mock.Mock()
+        ex = self.assertRaises(rpc.ExpectedException,
+                               self.eng.cluster_delete,
+                               self.ctx, identity)
+        msg = _('The host_cluster (cluster1) is still in use.')
+        self.assertEqual(exc.ResourceInUse, ex.exc_info[0])
+        self.assertEqual(msg, six.text_type(ex.exc_info[1]))
+
+    @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_delete_not_found(self, mock_find):
-        mock_find.side_effect = exc.ClusterNotFound(cluster='Bogus')
+        mock_find.side_effect = exc.ResourceNotFound(type='cluster',
+                                                     id='Bogus')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_delete,
                                self.ctx, 'Bogus')
 
-        self.assertEqual(exc.ClusterNotFound, ex.exc_info[0])
+        self.assertEqual(exc.ResourceNotFound, ex.exc_info[0])
         self.assertEqual('The cluster (Bogus) could not be found.',
                          six.text_type(ex.exc_info[1]))
 
@@ -693,7 +711,7 @@ class ClusterTest(base.SenlinTestCase):
     @mock.patch.object(cpo.ClusterPolicy, 'get_all')
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_delete_policy_attached(self, mock_find, mock_policies):
-        x_obj = mock.Mock(id='12345678AB')
+        x_obj = mock.Mock(id='12345678AB', dependents={})
         mock_find.return_value = x_obj
         mock_policies.return_value = [mock.Mock()]
 
@@ -713,7 +731,7 @@ class ClusterTest(base.SenlinTestCase):
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_delete_with_receiver(self, mock_find, mock_policies,
                                           mock_receivers):
-        x_obj = mock.Mock(id='12345678AB')
+        x_obj = mock.Mock(id='12345678AB', dependents={})
         mock_find.return_value = x_obj
         mock_policies.return_value = []
         mock_receivers.return_value = [mock.Mock()]
@@ -772,13 +790,14 @@ class ClusterTest(base.SenlinTestCase):
 
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_add_nodes_cluster_not_found(self, mock_find):
-        mock_find.side_effect = exc.ClusterNotFound(cluster='Bogus')
+        mock_find.side_effect = exc.ResourceNotFound(type='cluster',
+                                                     id='Bogus')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_add_nodes,
                                self.ctx, 'Bogus', ['n1', 'n2'])
 
-        self.assertEqual(exc.ClusterNotFound, ex.exc_info[0])
+        self.assertEqual(exc.ResourceNotFound, ex.exc_info[0])
         self.assertEqual('The cluster (Bogus) could not be found.',
                          six.text_type(ex.exc_info[1]))
         mock_find.assert_called_once_with(self.ctx, 'Bogus')
@@ -807,7 +826,7 @@ class ClusterTest(base.SenlinTestCase):
                                                mock_node):
         mock_find.return_value = mock.Mock(id='1234', profile_id='FAKE_ID')
         mock_profile.return_value = mock.Mock(type='FAKE_TYPE')
-        mock_node.side_effect = exc.NodeNotFound(node='NODE1')
+        mock_node.side_effect = exc.ResourceNotFound(type='node', id='NODE1')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_add_nodes,
@@ -964,13 +983,14 @@ class ClusterTest(base.SenlinTestCase):
 
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_del_nodes_cluster_not_found(self, mock_find):
-        mock_find.side_effect = exc.ClusterNotFound(cluster='Bogus')
+        mock_find.side_effect = exc.ResourceNotFound(type='cluster',
+                                                     id='Bogus')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_del_nodes,
                                self.ctx, 'Bogus', ['n1', 'n2'])
 
-        self.assertEqual(exc.ClusterNotFound, ex.exc_info[0])
+        self.assertEqual(exc.ResourceNotFound, ex.exc_info[0])
         self.assertEqual('The cluster (Bogus) could not be found.',
                          six.text_type(ex.exc_info[1]))
         mock_find.assert_called_once_with(self.ctx, 'Bogus')
@@ -992,7 +1012,7 @@ class ClusterTest(base.SenlinTestCase):
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_del_nodes_node_not_found(self, mock_find, mock_node):
         mock_find.return_value = mock.Mock()
-        mock_node.side_effect = exc.NodeNotFound(node='NODE1')
+        mock_node.side_effect = exc.ResourceNotFound(type='node', id='NODE1')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_del_nodes,
@@ -1287,7 +1307,8 @@ class ClusterTest(base.SenlinTestCase):
 
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_resize_cluster_not_found(self, mock_find):
-        mock_find.side_effect = exc.ClusterNotFound(cluster='FAKE_CLUSTER')
+        mock_find.side_effect = exc.ResourceNotFound(type='cluster',
+                                                     id='FAKE_CLUSTER')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_resize,
@@ -1295,7 +1316,7 @@ class ClusterTest(base.SenlinTestCase):
                                adj_type=consts.EXACT_CAPACITY, number=10)
 
         mock_find.assert_called_once_with(self.ctx, 'FAKE_CLUSTER')
-        self.assertEqual(exc.ClusterNotFound, ex.exc_info[0])
+        self.assertEqual(exc.ResourceNotFound, ex.exc_info[0])
         self.assertEqual("The cluster (FAKE_CLUSTER) could not be found.",
                          six.text_type(ex.exc_info[1]))
         mock_find.assert_called_once_with(self.ctx, 'FAKE_CLUSTER')
@@ -1343,13 +1364,14 @@ class ClusterTest(base.SenlinTestCase):
 
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_scale_out_cluster_not_found(self, mock_find):
-        mock_find.side_effect = exc.ClusterNotFound(cluster='Bogus')
+        mock_find.side_effect = exc.ResourceNotFound(type='cluster',
+                                                     id='Bogus')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_scale_out,
                                self.ctx, 'Bogus')
 
-        self.assertEqual(exc.ClusterNotFound, ex.exc_info[0])
+        self.assertEqual(exc.ResourceNotFound, ex.exc_info[0])
         self.assertEqual('The cluster (Bogus) could not be found.',
                          six.text_type(ex.exc_info[1]))
         mock_find.assert_called_once_with(self.ctx, 'Bogus')
@@ -1408,7 +1430,7 @@ class ClusterTest(base.SenlinTestCase):
                                self.ctx, 'FAKE_CLUSTER', 2)
 
         self.assertEqual(exc.BadRequest, ex.exc_info[0])
-        self.assertEqual("The request is malformed: size limit",
+        self.assertEqual("The request is malformed: size limit.",
                          six.text_type(ex.exc_info[1]))
         mock_find.assert_called_once_with(self.ctx, 'FAKE_CLUSTER')
         mock_check.assert_called_once_with(x_cluster, 6)
@@ -1440,13 +1462,14 @@ class ClusterTest(base.SenlinTestCase):
 
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_scale_in_cluster_not_found(self, mock_find):
-        mock_find.side_effect = exc.ClusterNotFound(cluster='Bogus')
+        mock_find.side_effect = exc.ResourceNotFound(type='cluster',
+                                                     id='Bogus')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_scale_in,
                                self.ctx, 'Bogus')
 
-        self.assertEqual(exc.ClusterNotFound, ex.exc_info[0])
+        self.assertEqual(exc.ResourceNotFound, ex.exc_info[0])
         self.assertEqual('The cluster (Bogus) could not be found.',
                          six.text_type(ex.exc_info[1]))
         mock_find.assert_called_once_with(self.ctx, 'Bogus')
@@ -1505,7 +1528,7 @@ class ClusterTest(base.SenlinTestCase):
                                self.ctx, 'FAKE_CLUSTER', 2)
 
         self.assertEqual(exc.BadRequest, ex.exc_info[0])
-        self.assertEqual("The request is malformed: size limit",
+        self.assertEqual("The request is malformed: size limit.",
                          six.text_type(ex.exc_info[1]))
         mock_find.assert_called_once_with(self.ctx, 'FAKE_CLUSTER')
         mock_check.assert_called_once_with(x_cluster, 2)
@@ -1555,12 +1578,12 @@ class ClusterTest(base.SenlinTestCase):
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_collect_cluster_not_found(self, mock_find, mock_load):
         cid = 'FAKE_CLUSTER'
-        mock_find.side_effect = exc.ClusterNotFound(cluster=cid)
+        mock_find.side_effect = exc.ResourceNotFound(type='cluster', id=cid)
 
         err = self.assertRaises(rpc.ExpectedException,
                                 self.eng.cluster_collect,
                                 self.ctx, cid, 'foo.bar')
-        self.assertEqual(exc.ClusterNotFound, err.exc_info[0])
+        self.assertEqual(exc.ResourceNotFound, err.exc_info[0])
         mock_find.assert_called_once_with(self.ctx, cid)
         self.assertEqual(0, mock_load.call_count)
 
@@ -1650,13 +1673,14 @@ class ClusterTest(base.SenlinTestCase):
 
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_check_cluster_not_found(self, mock_find):
-        mock_find.side_effect = exc.ClusterNotFound(cluster='Bogus')
+        mock_find.side_effect = exc.ResourceNotFound(type='cluster',
+                                                     id='Bogus')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_check,
                                self.ctx, 'Bogus')
 
-        self.assertEqual(exc.ClusterNotFound, ex.exc_info[0])
+        self.assertEqual(exc.ResourceNotFound, ex.exc_info[0])
         self.assertEqual('The cluster (Bogus) could not be found.',
                          six.text_type(ex.exc_info[1]))
         mock_find.assert_called_once_with(self.ctx, 'Bogus')
@@ -1685,12 +1709,13 @@ class ClusterTest(base.SenlinTestCase):
 
     @mock.patch.object(service.EngineService, 'cluster_find')
     def test_cluster_recover_cluster_not_found(self, mock_find):
-        mock_find.side_effect = exc.ClusterNotFound(cluster='Bogus')
+        mock_find.side_effect = exc.ResourceNotFound(type='cluster',
+                                                     id='Bogus')
 
         ex = self.assertRaises(rpc.ExpectedException,
                                self.eng.cluster_recover,
                                self.ctx, 'Bogus')
-        self.assertEqual(exc.ClusterNotFound, ex.exc_info[0])
+        self.assertEqual(exc.ResourceNotFound, ex.exc_info[0])
         self.assertEqual('The cluster (Bogus) could not be found.',
                          six.text_type(ex.exc_info[1]))
         mock_find.assert_called_once_with(self.ctx, 'Bogus')

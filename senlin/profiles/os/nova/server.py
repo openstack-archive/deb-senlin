@@ -13,7 +13,6 @@
 import base64
 import copy
 
-from oslo_log import log as logging
 from oslo_utils import encodeutils
 import six
 
@@ -21,34 +20,24 @@ from senlin.common import constraints
 from senlin.common import exception as exc
 from senlin.common.i18n import _
 from senlin.common import schema
-from senlin.drivers import base as driver_base
 from senlin.profiles import base
-
-LOG = logging.getLogger(__name__)
 
 
 class ServerProfile(base.Profile):
-    '''Profile for an OpenStack Nova server.'''
+    """Profile for an OpenStack Nova server."""
 
     KEYS = (
         CONTEXT, ADMIN_PASS, AUTO_DISK_CONFIG, AVAILABILITY_ZONE,
-        BLOCK_DEVICE_MAPPING, BLOCK_DEVICE_MAPPING_V2,
+        BLOCK_DEVICE_MAPPING_V2,
         CONFIG_DRIVE, FLAVOR, IMAGE, KEY_NAME, METADATA,
         NAME, NETWORKS, PERSONALITY, SECURITY_GROUPS,
         USER_DATA, SCHEDULER_HINTS,
     ) = (
-        'context', 'adminPass', 'auto_disk_config', 'availability_zone',
-        'block_device_mapping', 'block_device_mapping_v2',
+        'context', 'admin_pass', 'auto_disk_config', 'availability_zone',
+        'block_device_mapping_v2',
         'config_drive', 'flavor', 'image', 'key_name', 'metadata',
         'name', 'networks', 'personality', 'security_groups',
         'user_data', 'scheduler_hints',
-    )
-
-    BDM_KEYS = (
-        BDM_DEVICE_NAME, BDM_VOLUME_SIZE,
-    ) = (
-        'device_name',
-        'volume_size',
     )
 
     BDM2_KEYS = (
@@ -65,7 +54,7 @@ class ServerProfile(base.Profile):
     NETWORK_KEYS = (
         PORT, FIXED_IP, NETWORK,
     ) = (
-        'port', 'fixed-ip', 'network',
+        'port', 'fixed_ip', 'network',
     )
 
     PERSONALITY_KEYS = (
@@ -93,22 +82,6 @@ class ServerProfile(base.Profile):
         ),
         AVAILABILITY_ZONE: schema.String(
             _('Name of availability zone for running the server.'),
-        ),
-        BLOCK_DEVICE_MAPPING: schema.List(
-            _('A list specifying the properties of block devices to be used '
-              'for this server.'),
-            schema=schema.Map(
-                _('A map specifying the properties of a block device to be '
-                  'used by the server.'),
-                schema={
-                    BDM_DEVICE_NAME: schema.String(
-                        _('Block device name, should be <=255 chars.'),
-                    ),
-                    BDM_VOLUME_SIZE: schema.Integer(
-                        _('Block device size in GB.'),
-                    ),
-                }
-            ),
         ),
         BLOCK_DEVICE_MAPPING_V2: schema.List(
             _('A list specifying the properties of block devices to be used '
@@ -181,7 +154,7 @@ class ServerProfile(base.Profile):
             updatable=True,
         ),
         NAME: schema.String(
-            _('Name of the server.'),
+            _('Name of the server. When omitted, the node name will be used.'),
             updatable=True,
         ),
         NETWORKS: schema.List(
@@ -244,7 +217,7 @@ class ServerProfile(base.Profile):
 
     REBOOT_TYPE = 'type'
     REBOOT_TYPES = (REBOOT_SOFT, REBOOT_HARD) = ('SOFT', 'HARD')
-    ADMIN_PASSWORD = 'adminPass'
+    ADMIN_PASSWORD = 'admin_pass'
 
     OPERATIONS = {
         OP_REBOOT: schema.Operation(
@@ -271,38 +244,90 @@ class ServerProfile(base.Profile):
 
     def __init__(self, type_name, name, **kwargs):
         super(ServerProfile, self).__init__(type_name, name, **kwargs)
-
-        self._novaclient = None
-        self._neutronclient = None
         self.server_id = None
 
-    def nova(self, obj):
-        '''Construct nova client based on object.
+    def _validate_az(self, obj, az_name, reason=None):
+        try:
+            res = self.compute(obj).validate_azs([az_name])
+        except exc.InternalError as ex:
+            if reason == 'create':
+                raise exc.EResourceCreation(type='server',
+                                            message=six.text_type(ex))
+            else:
+                raise
 
-        :param obj: Object for which the client is created. It is expected to
-                    be None when retrieving an existing client. When creating
-                    a client, it contains the user and project to be used.
-        '''
+        if not res:
+            msg = _("The specified %(key)s '%(value)s' could not be found"
+                    ) % {'key': self.AVAILABILITY_ZONE, 'value': az_name}
+            if reason == 'create':
+                raise exc.EResourceCreation(type='server', message=msg)
+            else:
+                raise exc.InvalidSpec(message=msg)
 
-        if self._novaclient is not None:
-            return self._novaclient
-        params = self._build_conn_params(obj.user, obj.project)
-        self._novaclient = driver_base.SenlinDriver().compute(params)
-        return self._novaclient
+        return az_name
 
-    def neutron(self, obj):
-        '''Construct neutron client based on object.
+    def _validate_flavor(self, obj, name_or_id, reason=None):
+        flavor = None
+        msg = ''
+        try:
+            flavor = self.compute(obj).flavor_find(name_or_id, False)
+        except exc.InternalError as ex:
+            msg = six.text_type(ex)
+            if reason is None:  # reaons is 'validate'
+                if ex.code == 404:
+                    msg = _("The specified %(k)s '%(v)s' could not be found."
+                            ) % {'k': self.FLAVOR, 'v': name_or_id}
+                    raise exc.InvalidSpec(message=msg)
+                else:
+                    raise
 
-        :param obj: Object for which the client is created. It is expected to
-                    be None when retrieving an existing client. When creating
-                    a client, it contains the user and project to be used.
-        '''
+        if flavor is not None:
+            if not flavor.is_disabled:
+                return flavor
+            msg = _("The specified %(k)s '%(v)s' is disabled"
+                    ) % {'k': self.FLAVOR, 'v': name_or_id}
 
-        if self._neutronclient is not None:
-            return self._neutronclient
-        params = self._build_conn_params(obj.user, obj.project)
-        self._neutronclient = driver_base.SenlinDriver().network(params)
-        return self._neutronclient
+        if reason == 'create':
+            raise exc.EResourceCreation(type='server', message=msg)
+        elif reason == 'update':
+            raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                      message=msg)
+        else:
+            raise exc.InvalidSpec(message=msg)
+
+    def _validate_image(self, obj, name_or_id, reason=None):
+        try:
+            return self.compute(obj).image_find(name_or_id, False)
+        except exc.InternalError as ex:
+            if reason == 'create':
+                raise exc.EResourceCreation(type='server',
+                                            message=six.text_type(ex))
+            elif reason == 'update':
+                raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                          message=six.text_type(ex))
+            elif ex.code == 404:
+                msg = _("The specified %(k)s '%(v)s' could not be found."
+                        ) % {'k': self.IMAGE, 'v': name_or_id}
+                raise exc.InvalidSpec(message=msg)
+            else:
+                raise
+
+    def _validate_keypair(self, obj, name_or_id, reason=None):
+        try:
+            return self.compute(obj).keypair_find(name_or_id, False)
+        except exc.InternalError as ex:
+            if reason == 'create':
+                raise exc.EResourceCreation(type='server',
+                                            message=six.text_type(ex))
+            elif reason == 'update':
+                raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                          message=six.text_type(ex))
+            elif ex.code == 404:
+                msg = _("The specified %(k)s '%(v)s' could not be found."
+                        ) % {'k': self.KEY_NAME, 'v': name_or_id}
+                raise exc.InvalidSpec(message=msg)
+            else:
+                raise
 
     def do_validate(self, obj):
         """Validate if the spec has provided valid info for server creation.
@@ -312,59 +337,26 @@ class ServerProfile(base.Profile):
         # validate availability_zone
         az_name = self.properties[self.AVAILABILITY_ZONE]
         if az_name is not None:
-            res = self.nova(obj).validate_azs([az_name])
-            if not res:
-                msg = _("The specified %(key)s '%(value)s' could not be "
-                        "found.") % {'key': self.AVAILABILITY_ZONE,
-                                     'value': az_name}
-                raise exc.InvalidSpec(message=msg)
+            self._validate_az(obj, az_name)
 
         # validate flavor
         flavor = self.properties[self.FLAVOR]
-        valid_flavors = self.nova(obj).flavor_list()
-        found = False
-        for f in valid_flavors:
-            if not f.is_disabled and (flavor == f.id or flavor == f.name):
-                found = True
-        if not found:
-            msg = _("The specified %(key)s '%(value)s' could not be found."
-                    ) % {'key': self.FLAVOR, 'value': flavor}
-            raise exc.InvalidSpec(message=msg)
+        self._validate_flavor(obj, flavor)
 
         # validate image
         image = self.properties[self.IMAGE]
         if image is not None:
-            valid_images = self.nova(obj).image_list()
-            found = False
-            for img in valid_images:
-                if image == img.id or image == img.name:
-                    found = True
-            if not found:
-                msg = _("The specified %(key)s '%(value)s' could not be "
-                        "found.") % {'key': self.IMAGE, 'value': image}
-                raise exc.InvalidSpec(message=msg)
+            self._validate_image(obj, image)
 
         # validate key_name
         keypair = self.properties[self.KEY_NAME]
         if keypair is not None:
-            valid_keys = self.nova(obj).keypair_list()
-            found = False
-            for key in valid_keys:
-                if keypair == key.name:
-                    found = True
-            if not found:
-                msg = _("The specified %(key)s '%(value)s' could not be "
-                        "found.") % {'key': self.KEY_NAME, 'value': keypair}
-                raise exc.InvalidSpec(message=msg)
+            self._validate_keypair(obj, keypair)
 
-        # validate bdm conflicts
-        bdm = self.properties[self.BLOCK_DEVICE_MAPPING]
-        bdmv2 = self.properties[self.BLOCK_DEVICE_MAPPING_V2]
-        if all((bdm, bdmv2)):
-            msg = _("Only one of '%(key1)s' or '%(key2)s' can be specified, "
-                    "not both.") % {'key1': self.BLOCK_DEVICE_MAPPING,
-                                    'key2': self.BLOCK_DEVICE_MAPPING_V2}
-            raise exc.InvalidSpec(message=msg)
+        # validate networks
+        networks = self.properties[self.NETWORKS]
+        for net in networks:
+            self._validate_network(obj, net)
 
         return True
 
@@ -375,21 +367,82 @@ class ServerProfile(base.Profile):
                     del bd[key]
         return bdm
 
-    def _resolve_network(self, networks, client):
-        for network in networks:
-            net_name_id = network.get(self.NETWORK)
-            if net_name_id:
-                res = client.network_get(net_name_id)
-                network['uuid'] = res.id
-                del network[self.NETWORK]
-                if network['port'] is None:
-                    del network['port']
-                if network['fixed-ip'] is None:
-                    del network['fixed-ip']
-        return networks
+    def _validate_network(self, obj, network, reason=None):
+        result = {}
+        error = None
+        # check network
+        net_ident = network.get(self.NETWORK)
+        if net_ident:
+            try:
+                net = self.network(obj).network_get(net_ident)
+                if reason == 'update':
+                    result['net_id'] = net.id
+                else:
+                    result['uuid'] = net.id
+            except exc.InternalError as ex:
+                error = six.text_type(ex)
+
+        # check port
+        port_ident = network.get(self.PORT)
+        if not error and port_ident:
+            try:
+                port = self.network(obj).port_find(port_ident)
+                if port.status != 'DOWN':
+                    error = _("The status of the port %(port)s must be DOWN"
+                              ) % {'port': port_ident}
+
+                if reason == 'update':
+                    result['port_id'] = port.id
+                else:
+                    result['port'] = port.id
+            except exc.InternalError as ex:
+                error = six.text_type(ex)
+        elif port_ident is None and net_ident is None:
+            error = _("'%(port)s' is required if '%(net)s' is omitted"
+                      ) % {'port': self.PORT, 'net': self.NETWORK}
+
+        fixed_ip = network.get(self.FIXED_IP)
+        if not error and fixed_ip:
+            if port_ident is not None:
+                error = _("The '%(port)s' property and the '%(fixed_ip)s' "
+                          "property cannot be specified at the same time"
+                          ) % {'port': self.PORT, 'fixed_ip': self.FIXED_IP}
+            else:
+                if reason == 'update':
+                    result['fixed_ips'] = [{'ip_address': fixed_ip}]
+                else:
+                    result['fixed_ip'] = fixed_ip
+
+        if error:
+            if reason == 'create':
+                raise exc.EResourceCreation(type='server', message=error)
+            elif reason == 'update':
+                raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                          message=error)
+            else:
+                raise exc.InvalidSpec(message=error)
+
+        return result
+
+    def _build_metadata(self, obj, usermeta):
+        """Build custom metadata for server.
+
+        :param obj: The node object to operate on.
+        :return: A dictionary containing the new metadata.
+        """
+        metadata = usermeta or {}
+        metadata['cluster_node_id'] = obj.id
+        if obj.cluster_id:
+            metadata['cluster_id'] = obj.cluster_id
+            metadata['cluster_node_index'] = six.text_type(obj.index)
+
+        return metadata
 
     def do_create(self, obj):
-        '''Create a server using the given profile.'''
+        """Create a server for the node object.
+
+        :param obj: The node object for which a server will be created.
+        """
         kwargs = {}
         for key in self.KEYS:
             # context is treated as connection parameters
@@ -399,32 +452,34 @@ class ServerProfile(base.Profile):
             if self.properties[key] is not None:
                 kwargs[key] = self.properties[key]
 
-        name_or_id = self.properties[self.IMAGE]
-        if name_or_id is not None:
-            image = self.nova(obj).image_find(name_or_id)
-            # wait for new version of openstacksdk to fix this
+        admin_pass = self.properties[self.ADMIN_PASS]
+        if admin_pass:
+            kwargs.pop(self.ADMIN_PASS)
+            kwargs['adminPass'] = admin_pass
+
+        auto_disk_config = self.properties[self.AUTO_DISK_CONFIG]
+        kwargs.pop(self.AUTO_DISK_CONFIG)
+        kwargs['OS-DCF:diskConfig'] = 'AUTO' if auto_disk_config else 'MANUAL'
+
+        image_ident = self.properties[self.IMAGE]
+        if image_ident is not None:
+            image = self._validate_image(obj, image_ident, 'create')
             kwargs.pop(self.IMAGE)
             kwargs['imageRef'] = image.id
 
-        flavor_id = self.properties[self.FLAVOR]
-        flavor = self.nova(obj).flavor_find(flavor_id, False)
-
-        # wait for new verson of openstacksdk to fix this
+        flavor_ident = self.properties[self.FLAVOR]
+        flavor = self._validate_flavor(obj, flavor_ident, 'create')
         kwargs.pop(self.FLAVOR)
         kwargs['flavorRef'] = flavor.id
 
-        name = self.properties[self.NAME]
-        if name:
-            kwargs['name'] = name
-        else:
-            kwargs['name'] = obj.name
+        keypair_name = self.properties[self.KEY_NAME]
+        if keypair_name:
+            keypair = self._validate_keypair(obj, keypair_name, 'create')
+            kwargs['key_name'] = keypair.name
 
-        metadata = self.properties[self.METADATA] or {}
-        metadata['cluster_node_id'] = obj.id
-        if obj.cluster_id:
-            metadata['cluster_id'] = obj.cluster_id
-            metadata['cluster_node_index'] = six.text_type(obj.index)
+        kwargs['name'] = self.properties[self.NAME] or obj.name
 
+        metadata = self._build_metadata(obj, self.properties[self.METADATA])
         kwargs['metadata'] = metadata
 
         block_device_mapping_v2 = self.properties[self.BLOCK_DEVICE_MAPPING_V2]
@@ -439,8 +494,10 @@ class ServerProfile(base.Profile):
 
         networks = self.properties[self.NETWORKS]
         if networks is not None:
-            kwargs['networks'] = self._resolve_network(networks,
-                                                       self.neutron(obj))
+            kwargs['networks'] = []
+            for net_spec in networks:
+                net = self._validate_network(obj, net_spec, 'create')
+                kwargs['networks'].append(net)
 
         secgroups = self.properties[self.SECURITY_GROUPS]
         if secgroups:
@@ -449,6 +506,7 @@ class ServerProfile(base.Profile):
         if 'placement' in obj.data:
             if 'zone' in obj.data['placement']:
                 kwargs['availability_zone'] = obj.data['placement']['zone']
+
             if 'servergroup' in obj.data['placement']:
                 group_id = obj.data['placement']['servergroup']
                 hints = self.properties.get(self.SCHEDULER_HINTS, {})
@@ -456,8 +514,8 @@ class ServerProfile(base.Profile):
                 kwargs['scheduler_hints'] = hints
 
         try:
-            server = self.nova(obj).server_create(**kwargs)
-            self.nova(obj).wait_for_server(server.id)
+            server = self.compute(obj).server_create(**kwargs)
+            self.compute(obj).wait_for_server(server.id)
             return server.id
         except exc.InternalError as ex:
             raise exc.EResourceCreation(type='server', message=ex.message)
@@ -470,7 +528,7 @@ class ServerProfile(base.Profile):
                               operation.
         :returns: This operation always return True unless exception is
                   caught.
-        :raises: `EResourceDeletion` if interaction with nova fails.
+        :raises: `EResourceDeletion` if interaction with compute service fails.
         """
         if not obj.physical_id:
             return True
@@ -480,15 +538,298 @@ class ServerProfile(base.Profile):
         force = params.get('force', False)
 
         try:
+            driver = self.compute(obj)
             if force:
-                self.nova(obj).server_force_delete(server_id, ignore_missing)
+                driver.server_force_delete(server_id, ignore_missing)
             else:
-                self.nova(obj).server_delete(server_id, ignore_missing)
-            self.nova(obj).wait_for_server_delete(server_id)
+                driver.server_delete(server_id, ignore_missing)
+            driver.wait_for_server_delete(server_id)
             return True
         except exc.InternalError as ex:
             raise exc.EResourceDeletion(type='server', id=server_id,
                                         message=six.text_type(ex))
+
+    def _check_server_name(self, obj, profile):
+        """Check if there is a new name to be assigned to the server.
+
+        :param obj: The node object to operate on.
+        :param new_profile: The new profile which may contain a name for
+                            the server instance.
+        :return: A tuple consisting a boolean indicating whether the name
+                 needs change and the server name determined.
+        """
+        old_name = self.properties[self.NAME] or obj.name
+        new_name = profile.properties[self.NAME] or obj.name
+        if old_name == new_name:
+            return False, new_name
+        return True, new_name
+
+    def _update_name(self, obj, new_name):
+        """Update the name of the server.
+
+        :param obj: The node object to operate.
+        :param new_name: The new name for the server instance.
+        :return: ``None``.
+        :raises: ``EResourceUpdate``.
+        """
+        try:
+            self.compute(obj).server_update(obj.physical_id, name=new_name)
+        except exc.InternalError as ex:
+            raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                      message=six.text_type(ex))
+
+    def _check_password(self, obj, new_profile):
+        """Check if the admin password has been changed in the new profile.
+
+        :param obj: The server node to operate, not used currently.
+        :param new_profile: The new profile which may contain a new password
+                            for the server instance.
+        :return: A tuple consisting a boolean indicating whether the password
+                 needs a change and the password determined which could be
+                 '' if new password is not set.
+        """
+        old_passwd = self.properties.get(self.ADMIN_PASS) or ''
+        new_passwd = new_profile.properties[self.ADMIN_PASS] or ''
+        if old_passwd == new_passwd:
+            return False, new_passwd
+        return True, new_passwd
+
+    def _update_password(self, obj, new_password):
+        """Update the admin password for the server.
+
+        :param obj: The node object to operate.
+        :param new_password: The new password for the server instance.
+        :return: ``None``.
+        :raises: ``EResourceUpdate``.
+        """
+        try:
+            self.compute(obj).server_change_password(obj.physical_id,
+                                                     new_password)
+        except exc.InternalError as ex:
+            raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                      message=six.text_type(ex))
+
+    def _update_metadata(self, obj, new_profile):
+        """Update the server metadata.
+
+        :param obj: The node object to operate on.
+        :param new_profile: The new profile that may contain some changes to
+                            the metadata.
+        :returns: ``None``
+        :raises: `EResourceUpdate`.
+        """
+        old_meta = self._build_metadata(obj, self.properties[self.METADATA])
+        new_meta = self._build_metadata(obj,
+                                        new_profile.properties[self.METADATA])
+        if new_meta == old_meta:
+            return
+
+        try:
+            self.compute(obj).server_metadata_update(obj.physical_id, new_meta)
+        except exc.InternalError as ex:
+            raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                      message=six.text_type(ex))
+
+    def _update_flavor(self, obj, new_profile):
+        """Update server flavor.
+
+        :param obj: The node object to operate on.
+        :param old_flavor: The identity of the current flavor.
+        :param new_flavor: The identity of the new flavor.
+        :returns: ``None``.
+        :raises: `EResourceUpdate` when operation was a failure.
+        """
+        old_flavor = self.properties[self.FLAVOR]
+        new_flavor = new_profile.properties[self.FLAVOR]
+        cc = self.compute(obj)
+        oldflavor = self._validate_flavor(obj, old_flavor, 'update')
+        newflavor = self._validate_flavor(obj, new_flavor, 'update')
+        if oldflavor.id == newflavor.id:
+            return
+
+        try:
+            cc.server_resize(obj.physical_id, newflavor.id)
+            cc.wait_for_server(obj.physical_id, 'VERIFY_RESIZE')
+        except exc.InternalError as ex:
+            msg = six.text_type(ex)
+            try:
+                cc.server_resize_revert(obj.physical_id)
+                cc.wait_for_server(obj.physical_id, 'ACTIVE')
+            except exc.InternalError as ex1:
+                msg = six.text_type(ex1)
+            raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                      message=msg)
+
+        try:
+            cc.server_resize_confirm(obj.physical_id)
+            cc.wait_for_server(obj.physical_id, 'ACTIVE')
+        except exc.InternalError as ex:
+            raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                      message=six.text_type(ex))
+
+    def _update_image(self, obj, new_profile, new_name, new_password):
+        """Update image used by server node.
+
+        :param obj: The node object to operate on.
+        :param new_profile: The profile which may contain a new image name or
+                            ID to use.
+        :param new_name: The name for the server node.
+        :param newn_password: The new password for the administrative account
+                              if provided.
+        :returns: A boolean indicating whether the image needs an update.
+        :raises: ``InternalError`` if operation was a failure.
+        """
+        old_image = self.properties[self.IMAGE]
+        new_image = new_profile.properties[self.IMAGE]
+        if not new_image:
+            msg = _("Updating Nova server with image set to None is not "
+                    "supported by Nova")
+            raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                      message=msg)
+        # check the new image first
+        img_new = self._validate_image(obj, new_image, reason='update')
+        new_image_id = img_new.id
+
+        driver = self.compute(obj)
+        if old_image:
+            img_old = self._validate_image(obj, old_image, reason='update')
+            old_image_id = img_old.id
+        else:
+            try:
+                server = driver.server_get(obj.physical_id)
+            except exc.InternalError as ex:
+                raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                          message=six.text_type(ex))
+            # Still, this 'old_image_id' could be empty, but it doesn't matter
+            # because the comparison below would fail if that is the case
+            old_image_id = server.image.get('id', None)
+
+        if new_image_id == old_image_id:
+            return False
+
+        try:
+            driver.server_rebuild(obj.physical_id, new_image_id,
+                                  new_name, new_password)
+            driver.wait_for_server(obj.physical_id, 'ACTIVE')
+        except exc.InternalError as ex:
+            raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                      message=six.text_type(ex))
+        return True
+
+    def _create_interfaces(self, obj, networks):
+        """Create new interfaces for the server node.
+
+        :param obj: The node object to operate.
+        :param networks: A list containing information about new network
+                         interfaces to be created.
+        :returns: ``None``.
+        :raises: ``EResourceUpdate`` if interaction with drivers failed.
+        """
+        cc = self.compute(obj)
+        try:
+            server = cc.server_get(obj.physical_id)
+        except exc.InternalError as ex:
+            raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                      message=six.text_type(ex))
+
+        for net_spec in networks:
+            net_attrs = self._validate_network(obj, net_spec, 'update')
+            if net_attrs:
+                try:
+                    cc.server_interface_create(server, **net_attrs)
+                except exc.InternalError as ex:
+                    raise exc.EResourceUpdate(type='server',
+                                              id=obj.physical_id,
+                                              message=six.text_type(ex))
+
+    def _delete_interfaces(self, obj, networks):
+        """Delete existing interfaces from the node.
+
+        :param obj: The node object to operate.
+        :param networks: A list containing information about network
+                         interfaces to be created.
+        :returns: ``None``
+        :raises: ``EResourceUpdate``
+        """
+        def _get_network(nc, net_id, server_id):
+            try:
+                net = nc.network_get(net_id)
+                return net.id
+            except exc.InternalError as ex:
+                raise exc.EResourceUpdate(type='server', id=server_id,
+                                          message=six.text_type(ex))
+
+        def _do_delete(port_id, server_id):
+            try:
+                cc.server_interface_delete(port_id, server_id)
+            except exc.InternalError as ex:
+                raise exc.EResourceUpdate(type='server', id=server_id,
+                                          message=six.text_type(ex))
+
+        cc = self.compute(obj)
+        nc = self.network(obj)
+        try:
+            existing = list(cc.server_interface_list(obj.physical_id))
+        except exc.InternalError as ex:
+            raise exc.EResourceUpdate(type='server', id=obj.physical_id,
+                                      message=six.text_type(ex))
+
+        ports = []
+        for intf in existing:
+            fixed_ips = [addr['ip_address'] for addr in intf.fixed_ips]
+            ports.append({
+                'id': intf.port_id,
+                'net': intf.net_id,
+                'ips': fixed_ips
+            })
+
+        for n in networks:
+            network = n.get('network', None)
+            port = n.get('port', None)
+            fixed_ip = n.get('fixed_ip', None)
+            if port:
+                for p in ports:
+                    if p['id'] == port:
+                        ports.remove(p)
+                        _do_delete(port, obj.physical_id)
+            elif fixed_ip:
+                net_id = _get_network(nc, network, obj.physical_id)
+                for p in ports:
+                    if (fixed_ip in p['ips'] and net_id == p['net']):
+                        ports.remove(p)
+                        _do_delete(p['id'], obj.physical_id)
+            elif port is None and fixed_ip is None:
+                net_id = _get_network(nc, network, obj.physical_id)
+                for p in ports:
+                    if p['net'] == net_id:
+                        ports.remove(p)
+                        _do_delete(p['id'], obj.physical_id)
+
+    def _update_network(self, obj, new_profile):
+        """Updating server network interfaces.
+
+        :param obj: The node object to operate.
+        :param new_profile: The new profile which may contain new network
+                            settings.
+        :return: ``None``
+        :raises: ``EResourceUpdate`` if there are driver failures.
+        """
+        networks_current = self.properties[self.NETWORKS]
+        networks_create = new_profile.properties[self.NETWORKS]
+        networks_delete = copy.deepcopy(networks_current)
+        for network in networks_current:
+            if network in networks_create:
+                networks_create.remove(network)
+                networks_delete.remove(network)
+
+        # Detach some existing interfaces
+        if networks_delete:
+            self._delete_interfaces(obj, networks_delete)
+
+        # Attach new interfaces
+        if networks_create:
+            self._create_interfaces(obj, networks_create)
+        return
 
     def do_update(self, obj, new_profile=None, **params):
         """Perform update on the server.
@@ -509,220 +850,28 @@ class ServerProfile(base.Profile):
         if not self.validate_for_update(new_profile):
             return False
 
+        name_changed, new_name = self._check_server_name(obj, new_profile)
+        passwd_changed, new_passwd = self._check_password(obj, new_profile)
+        # Update server image: may have side effect of changing server name
+        # and/or admin password
+        image_changed = self._update_image(obj, new_profile, new_name,
+                                           new_passwd)
+        if not image_changed:
+            # we do this separately only when rebuild wasn't performed
+            if name_changed:
+                self._update_name(obj, new_name)
+            if passwd_changed:
+                self._update_password(obj, new_passwd)
+
+        # Update server flavor: note that flavor is a required property
+        self._update_flavor(obj, new_profile)
+        self._update_network(obj, new_profile)
+
         # TODO(Yanyan Hu): Update block_device properties
-
-        # Update basic properties of server
-        try:
-            self._update_basic_properties(obj, new_profile)
-        except exc.InternalError as ex:
-            raise exc.EResourceUpdate(type='server', id=self.server_id,
-                                      message=ex.message)
-
-        # Update server flavor
-        flavor = self.properties[self.FLAVOR]
-        new_flavor = new_profile.properties[self.FLAVOR]
-        if new_flavor != flavor:
-            try:
-                self._update_flavor(obj, flavor, new_flavor)
-            except exc.InternalError as ex:
-                raise exc.EResourceUpdate(type='server', id=self.server_id,
-                                          message=ex.message)
-
-        # Update server image
-        old_passwd = self.properties.get(self.ADMIN_PASS)
-        passwd = old_passwd
-        if new_profile.properties[self.ADMIN_PASS] is not None:
-            passwd = new_profile.properties[self.ADMIN_PASS]
-        image = self.properties[self.IMAGE]
-        new_image = new_profile.properties[self.IMAGE]
-        if new_image != image:
-            try:
-                self._update_image(obj, image, new_image, passwd)
-            except exc.InternalError as ex:
-                raise exc.EResourceUpdate(type='server', id=self.server_id,
-                                          message=ex.message)
-
-        elif old_passwd != passwd:
-            # TODO(Jun Xu): update server admin password
-            pass
-
-        # Update server network
-        networks_current = self.properties[self.NETWORKS]
-        networks_create = new_profile.properties[self.NETWORKS]
-        networks_delete = copy.deepcopy(networks_current)
-        for network in networks_current:
-            if network in networks_create:
-                networks_create.remove(network)
-                networks_delete.remove(network)
-        if networks_create or networks_delete:
-            # We have network interfaces to be deleted and/or created
-            try:
-                self._update_network(obj, networks_create, networks_delete)
-            except exc.InternalError as ex:
-                raise exc.EResourceUpdate(type='server', id=self.server_id,
-                                          message=ex.message)
-        return True
-
-    def _update_basic_properties(self, obj, new_profile):
-        """Updating basic server properties including name, metadata.
-
-        :param obj: The node object to operate on.
-        :param new_profile: The new profile that may contain some changes of
-                            basic properties for update.
-        :returns: None
-        :raises: `InternalError` if the nova call fails.
-        """
         # Update server metadata
-        metadata = self.properties[self.METADATA]
-        new_metadata = new_profile.properties[self.METADATA]
-        if new_metadata != metadata:
-            if new_metadata is None:
-                new_metadata = {}
-            self.nova(obj).server_metadata_update(self.server_id, new_metadata)
+        self._update_metadata(obj, new_profile)
 
-        # Update server name
-        name = self.properties[self.NAME]
-        new_name = new_profile.properties[self.NAME]
-        if new_name != name:
-            attrs = {'name': new_name if new_name else obj.name}
-            self.nova(obj).server_update(self.server_id, **attrs)
-
-        return
-
-    def _update_flavor(self, obj, old_flavor, new_flavor):
-        """Update server flavor.
-
-        :param obj: The node object to operate on.
-        :param old_flavor: The identity of the current flavor.
-        :param new_flavor: The identity of the new flavor.
-        :returns: ``None``.
-        :raises: `InternalError` when operation was a failure.
-        """
-        res = self.nova(obj).flavor_find(old_flavor)
-        old_flavor_id = res.id
-        res = self.nova(obj).flavor_find(new_flavor)
-        new_flavor_id = res.id
-        if new_flavor_id == old_flavor_id:
-            return
-
-        try:
-            self.nova(obj).server_resize(obj.physical_id, new_flavor_id)
-            self.nova(obj).wait_for_server(obj.physical_id, 'VERIFY_RESIZE')
-        except exc.InternalError:
-            try:
-                self.nova(obj).server_resize_revert(obj.physical_id)
-                self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
-            except exc.InternalError:
-                raise
-            else:
-                raise
-
-        try:
-            self.nova(obj).server_resize_confirm(obj.physical_id)
-            self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
-        except exc.InternalError:
-            raise
-
-    def _update_image(self, obj, old_image, new_image, admin_password):
-        """Update image used by server node.
-
-        :param old: The node object to operate on.
-        :param old_image: The identity of the image currently used.
-        :param new_image: The identity of the new image to use.
-        :param admin_password: The new password for the administrative account
-                               if provided.
-        :returns: ``None``.
-        :raises: ``InternalError`` if operation was a failure.
-        """
-        if old_image:
-            res = self.nova(obj).image_find(old_image)
-            image_id = res.id
-        else:
-            server = self.nova(obj).server_get(obj.physical_id)
-            image_id = server.image['id']
-
-        if not new_image:
-            # TODO(Yanyan Hu): Allow server update with new_image
-            # set to None if Nova service supports it
-            message = _("Updating Nova server with image set to None is "
-                        "not supported by Nova.")
-            raise exc.InternalError(code=500, message=message)
-
-        res = self.nova(obj).image_find(new_image)
-        new_image_id = res.id
-        if new_image_id != image_id:
-            # (Jun Xu): Not update name here if name changed,
-            # it should be updated in do_update
-            self.nova(obj).server_rebuild(obj.physical_id, new_image_id,
-                                          self.properties.get(self.NAME),
-                                          admin_password)
-            self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
-
-        return
-
-    def _update_network(self, obj, networks_create, networks_delete):
-        '''Updating server network interfaces'''
-
-        server = self.nova(obj).server_get(self.server_id)
-        ports_existing = list(self.nova(obj).server_interface_list(server))
-        ports = []
-        for p in ports_existing:
-            fixed_ips = []
-            for addr in p['fixed_ips']:
-                fixed_ips.append(addr['ip_address'])
-            ports.append({'port_id': p['port_id'], 'net_id': p['net_id'],
-                          'fixed_ips': fixed_ips})
-
-        # Detach some existing ports
-        # Step1. Accurately search port with port_id or fixed-ip/net_id
-        for n in networks_delete:
-            if n['port'] is not None:
-                for p in ports:
-                    if p['port_id'] == n['port']:
-                        ports.remove(p)
-                        break
-                res = self.nova(obj).server_interface_delete(n['port'],
-                                                             server)
-            elif n['fixed-ip'] is not None:
-                res = self.neutron(obj).network_get(n['network'])
-                net_id = res.id
-                for p in ports:
-                    if (n['fixed-ip'] in p['fixed_ips']) and (
-                            p['net_id'] == net_id):
-                        res = self.nova(obj).server_interface_delete(
-                            p['port_id'], server)
-                        ports.remove(p)
-                        break
-
-        # Step2. Fuzzy search port with net_id
-        for n in networks_delete:
-            if n['port'] is None and n['fixed-ip'] is None:
-                res = self.neutron(obj).network_get(n['network'])
-                net_id = res.id
-                for p in ports:
-                    if p['net_id'] == net_id:
-                        res = self.nova(obj).server_interface_delete(
-                            p['port_id'], server)
-                        ports.remove(p)
-                        break
-
-        # Attach new ports added in new network definition
-        for n in networks_create:
-            net_name_id = n.get(self.NETWORK, None)
-            if net_name_id:
-                res = self.neutron(obj).network_get(net_name_id)
-                n['net_id'] = res.id
-                if n['fixed-ip'] is not None:
-                    n['fixed_ips'] = [
-                        {'ip_address': n['fixed-ip']}]
-            if n['port'] is not None:
-                n['port_id'] = n['port']
-            del n['network']
-            del n['port']
-            del n['fixed-ip']
-            self.nova(obj).server_interface_create(server, **n)
-
-        return
+        return True
 
     def do_get_details(self, obj):
         known_keys = {
@@ -748,8 +897,9 @@ class ServerProfile(base.Profile):
         if obj.physical_id is None or obj.physical_id == '':
             return {}
 
+        driver = self.compute(obj)
         try:
-            server = self.nova(obj).server_get(obj.physical_id)
+            server = driver.server_get(obj.physical_id)
         except exc.InternalError as ex:
             return {
                 'Error': {
@@ -802,10 +952,11 @@ class ServerProfile(base.Profile):
         if not obj.physical_id:
             return False
 
-        metadata = self.nova(obj).server_metadata_get(obj.physical_id) or {}
+        driver = self.compute(obj)
+        metadata = driver.server_metadata_get(obj.physical_id) or {}
         metadata['cluster_id'] = cluster_id
         metadata['cluster_node_index'] = six.text_type(obj.index)
-        self.nova(obj).server_metadata_update(obj.physical_id, metadata)
+        driver.server_metadata_update(obj.physical_id, metadata)
         return super(ServerProfile, self).do_join(obj, cluster_id)
 
     def do_leave(self, obj):
@@ -813,7 +964,7 @@ class ServerProfile(base.Profile):
             return False
 
         keys = ['cluster_id', 'cluster_node_index']
-        self.nova(obj).server_metadata_delete(obj.physical_id, keys)
+        self.compute(obj).server_metadata_delete(obj.physical_id, keys)
         return super(ServerProfile, self).do_leave(obj)
 
     def do_rebuild(self, obj):
@@ -821,9 +972,9 @@ class ServerProfile(base.Profile):
             return False
 
         self.server_id = obj.physical_id
-
+        driver = self.compute(obj)
         try:
-            server = self.nova(obj).server_get(self.server_id)
+            server = driver.server_get(self.server_id)
         except exc.InternalError as ex:
             raise exc.EResourceOperation(op='rebuilding', type='server',
                                          id=self.server_id,
@@ -835,10 +986,10 @@ class ServerProfile(base.Profile):
         image_id = server.image['id']
         admin_pass = self.properties.get(self.ADMIN_PASS)
         try:
-            self.nova(obj).server_rebuild(self.server_id, image_id,
-                                          self.properties.get(self.NAME),
-                                          admin_pass)
-            self.nova(obj).wait_for_server(self.server_id, 'ACTIVE')
+            driver.server_rebuild(self.server_id, image_id,
+                                  self.properties.get(self.NAME),
+                                  admin_pass)
+            driver.wait_for_server(self.server_id, 'ACTIVE')
         except exc.InternalError as ex:
             raise exc.EResourceOperation(op='rebuilding', type='server',
                                          id=self.server_id,
@@ -850,7 +1001,7 @@ class ServerProfile(base.Profile):
             return False
 
         try:
-            server = self.nova(obj).server_get(obj.physical_id)
+            server = self.compute(obj).server_get(obj.physical_id)
         except exc.InternalError as ex:
             raise exc.EResourceOperation(op='checking', type='server',
                                          id=obj.physical_id,
@@ -886,8 +1037,8 @@ class ServerProfile(base.Profile):
                 reboot_type not in self.REBOOT_TYPES):
             return False
 
-        self.nova(obj).server_reboot(obj.physical_id, reboot_type)
-        self.nova(obj).wait_for_server(obj.physical_id, 'ACTIVE')
+        self.compute(obj).server_reboot(obj.physical_id, reboot_type)
+        self.compute(obj).wait_for_server(obj.physical_id, 'ACTIVE')
         return True
 
     def handle_change_password(self, obj, **options):
@@ -899,5 +1050,5 @@ class ServerProfile(base.Profile):
         if (password is None or not isinstance(password, six.string_types)):
             return False
 
-        self.nova(obj).server_change_password(obj.physical_id, password)
+        self.compute(obj).server_change_password(obj.physical_id, password)
         return True

@@ -36,7 +36,7 @@ class Cluster(object):
 
     All operations are performed without further checking because the
     checkings are supposed to be done before/after/during an action is
-    excuted.
+    executed.
     """
 
     STATUSES = (
@@ -80,6 +80,7 @@ class Cluster(object):
         self.status_reason = kwargs.get('status_reason', 'Initializing')
         self.data = kwargs.get('data', {})
         self.metadata = kwargs.get('metadata') or {}
+        self.dependents = kwargs.get('dependents') or {}
 
         # rt is a dict for runtime data
         self.rt = {
@@ -133,6 +134,7 @@ class Cluster(object):
             'status_reason': self.status_reason,
             'meta_data': self.metadata,
             'data': self.data,
+            'dependents': self.dependents,
         }
 
         timestamp = timeutils.utcnow(True)
@@ -171,6 +173,7 @@ class Cluster(object):
             'status_reason': obj.status_reason,
             'data': obj.data,
             'metadata': obj.metadata,
+            'dependents': obj.dependents,
         }
 
         return cls(obj.name, obj.desired_capacity, obj.profile_id,
@@ -183,7 +186,7 @@ class Cluster(object):
             dbcluster = co.Cluster.get(context, cluster_id,
                                        project_safe=project_safe)
             if dbcluster is None:
-                raise exception.ClusterNotFound(cluster=cluster_id)
+                raise exception.ResourceNotFound(type='cluster', id=cluster_id)
 
         return cls._from_object(context, dbcluster)
 
@@ -219,6 +222,7 @@ class Cluster(object):
             'status_reason': self.status_reason,
             'metadata': self.metadata,
             'data': self.data,
+            'dependents': self.dependents,
             'nodes': [node.id for node in self.rt['nodes']],
             'policies': [policy.id for policy in self.rt['policies']],
         }
@@ -267,6 +271,16 @@ class Cluster(object):
             self.rt['profile'] = profile
         co.Cluster.update(context, self.id, values)
         return
+
+    def update_dependents(self, context, dependents):
+        """Update dependency information of cluster's property.
+
+        :param context: An instance of request context.
+        :param dependents: The dependency information.
+        """
+
+        values = {'dependents': dependents}
+        co.Cluster.update(context, self.id, values)
 
     def do_create(self, context, **kwargs):
         '''Additional logic at the beginning of cluster creation process.

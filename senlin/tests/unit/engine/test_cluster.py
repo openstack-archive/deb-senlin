@@ -222,7 +222,7 @@ class TestCluster(base.SenlinTestCase):
     @mock.patch.object(co.Cluster, 'get')
     def test_load_not_found(self, mock_get):
         mock_get.return_value = None
-        ex = self.assertRaises(exception.ClusterNotFound,
+        ex = self.assertRaises(exception.ResourceNotFound,
                                cb.Cluster.load,
                                self.context, cluster_id=CLUSTER_ID)
         self.assertEqual('The cluster (%s) could not be found.' % CLUSTER_ID,
@@ -285,6 +285,7 @@ class TestCluster(base.SenlinTestCase):
             'status_reason': None,
             'metadata': {},
             'data': None,
+            'dependents': {},
             'nodes': [],
             'policies': [],
             'profile_name': None,
@@ -378,6 +379,15 @@ class TestCluster(base.SenlinTestCase):
         self.assertEqual('Update in progress', cluster.status_reason)
         mock_update.assert_called_once_with(self.context, CLUSTER_ID,
                                             {'status': cluster.WARNING})
+
+    @mock.patch.object(co.Cluster, 'update')
+    def test_update_dependents(self, mock_update):
+        cluster = cb.Cluster('test-cluster', 0, PROFILE_ID,
+                             id=CLUSTER_ID, status='ACTIVE')
+        dependents = {'containers': ['container1']}
+        cluster.update_dependents(self.context, dependents)
+        values = {'dependents': {'containers': ['container1']}}
+        mock_update.assert_called_once_with(self.context, CLUSTER_ID, values)
 
     def test_do_create(self):
         cluster = cb.Cluster('test-cluster', 0, PROFILE_ID)

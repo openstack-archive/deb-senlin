@@ -47,9 +47,8 @@ class TestContainerDockerProfile(base.SenlinTestCase):
     def test_init(self):
         profile = docker_profile.DockerProfile('t', self.spec)
         self.assertIsNone(profile._dockerclient)
-        self.assertIsNone(profile._novaclient)
-        self.assertIsNone(profile._heatclient)
         self.assertIsNone(profile.container_id)
+        self.assertIsNone(profile.host)
 
     @mock.patch('senlin.drivers.container.docker_v1.DockerClient')
     @mock.patch.object(docker_profile.DockerProfile, '_get_host_ip')
@@ -105,14 +104,15 @@ class TestContainerDockerProfile(base.SenlinTestCase):
     @mock.patch.object(docker_profile.DockerProfile, '_get_host_cluster')
     @mock.patch.object(docker_profile.DockerProfile, '_get_specified_node')
     def test_get_host(self, mock_node, mock_cluster):
-        node = mock.Mock(id='node1')
-        mock_node.return_value = node
-        cluster = mock.Mock(nodes=['node1', 'node2'])
+        node1 = mock.Mock(id='node1')
+        node2 = mock.Mock(id='node2')
+        mock_node.return_value = node1
+        cluster = mock.Mock(rt={'nodes': [node1, node2]})
         mock_cluster.return_value = cluster
         profile = docker_profile.DockerProfile('container', self.spec)
         ctx = mock.Mock()
         host = profile._get_host(ctx, 'fake_node', 'fake_cluster')
-        self.assertEqual(node, host)
+        self.assertEqual(node1, host)
         mock_node.assert_called_once_with(ctx, 'fake_node')
         mock_cluster.assert_called_once_with(ctx, 'fake_cluster')
 
@@ -120,9 +120,11 @@ class TestContainerDockerProfile(base.SenlinTestCase):
     @mock.patch.object(docker_profile.DockerProfile, '_get_specified_node')
     def test_get_host_node_not_belong_to_cluster(self, mock_node,
                                                  mock_cluster):
-        node = mock.Mock(id='node1')
-        mock_node.return_value = node
-        cluster = mock.Mock(nodes=['node2', 'node3'])
+        node1 = mock.Mock(id='node1')
+        node2 = mock.Mock(id='node2')
+        node3 = mock.Mock(id='node3')
+        mock_node.return_value = node1
+        cluster = mock.Mock(rt={'nodes': [node2, node3]})
         mock_cluster.return_value = cluster
         profile = docker_profile.DockerProfile('container', self.spec)
         ctx = mock.Mock()
@@ -157,7 +159,9 @@ class TestContainerDockerProfile(base.SenlinTestCase):
 
     @mock.patch.object(cluster.Cluster, 'load')
     def test_get_host_cluster_not_found(self, mock_load):
-        mock_load.side_effect = exc.ClusterNotFound(cluster='host_cluster')
+        mock_load.side_effect = exc.ResourceNotFound(type='cluster',
+                                                     id='host_cluster')
+
         ctx = mock.Mock()
         profile = docker_profile.DockerProfile('container', self.spec)
         ex = self.assertRaises(exc.EResourceCreation,
@@ -179,12 +183,13 @@ class TestContainerDockerProfile(base.SenlinTestCase):
 
     @mock.patch.object(node.Node, 'load')
     def test_get_specified_node_not_found(self, mock_load):
-        mock_load.side_effect = exc.NodeNotFound(node='fake_node')
+        mock_load.side_effect = exc.ResourceNotFound(type='node',
+                                                     id='fake_node')
         profile = docker_profile.DockerProfile('container', self.spec)
         obj = mock.Mock()
         ex = self.assertRaises(exc.EResourceCreation,
                                profile.docker, obj)
-        msg = _('Failed in creating container: The host_node (fake_node) '
+        msg = _('Failed in creating container: The host node (fake_node) '
                 'could not be found.')
         self.assertEqual(msg, ex.message)
 
@@ -193,7 +198,7 @@ class TestContainerDockerProfile(base.SenlinTestCase):
         node1 = mock.Mock(status='ERROR')
         node2 = mock.Mock(status='ACTIVE')
         node3 = mock.Mock(status='ACTIVE')
-        cluster = mock.Mock(nodes=[node1, node2, node3])
+        cluster = mock.Mock(rt={'nodes': [node1, node2, node3]})
         mock_cluster.return_value = cluster
         active_nodes = [node2, node3]
         profile = docker_profile.DockerProfile('container', self.spec)
@@ -203,7 +208,7 @@ class TestContainerDockerProfile(base.SenlinTestCase):
 
     @mock.patch.object(docker_profile.DockerProfile, '_get_host_cluster')
     def test_get_random_node_empty_cluster(self, mock_cluster):
-        cluster = mock.Mock(nodes=[])
+        cluster = mock.Mock(rt={'nodes': []})
         mock_cluster.return_value = cluster
         profile = docker_profile.DockerProfile('container', self.spec)
         ctx = mock.Mock()
@@ -219,7 +224,7 @@ class TestContainerDockerProfile(base.SenlinTestCase):
         node1 = mock.Mock(status='ERROR')
         node2 = mock.Mock(status='ERROR')
         node3 = mock.Mock(status='ERROR')
-        cluster = mock.Mock(nodes=[node1, node2, node3])
+        cluster = mock.Mock(rt={'nodes': [node1, node2, node3]})
         mock_cluster.return_value = cluster
         profile = docker_profile.DockerProfile('container', self.spec)
         ctx = mock.Mock()
@@ -230,54 +235,71 @@ class TestContainerDockerProfile(base.SenlinTestCase):
                 'running in the cluster (host_cluster).')
         self.assertEqual(msg, ex.message)
 
-    @mock.patch.object(docker_profile.DockerProfile, 'nova')
-    def test_get_host_ip_nova_server(self, mock_nova):
+    def test_get_host_ip_nova_server(self):
         addresses = {
             'private': [{'version': 4, 'OS-EXT-IPS:type': 'fixed',
                          'addr': '1.2.3.4'}]
         }
         server = mock.Mock(addresses=addresses)
-        novaclient = mock.Mock()
-        mock_nova.return_value = novaclient
-        novaclient.server_get.return_value = server
+        cc = mock.Mock()
+        cc.server_get.return_value = server
         profile = docker_profile.DockerProfile('container', self.spec)
+        profile._computeclient = cc
         obj = mock.Mock()
         host_ip = profile._get_host_ip(obj, 'fake_node', 'os.nova.server')
         self.assertEqual('1.2.3.4', host_ip)
-        novaclient.server_get.assert_called_once_with('fake_node')
+        cc.server_get.assert_called_once_with('fake_node')
 
-    @mock.patch.object(docker_profile.DockerProfile, 'heat')
-    def test_get_host_ip_heat_stack(self, mock_heat):
-        heatclient = mock.Mock()
-        mock_heat.return_value = heatclient
-        stack = mock.Mock()
-        heatclient.stack_get.return_value = stack
-        outputs = [{'output_key': 'fixed_ip', 'output_value': '1.2.3.4'}]
-        stack.outputs = outputs
+    def test_get_host_ip_heat_stack(self):
+        oc = mock.Mock()
+        stack = mock.Mock(
+            outputs=[{'output_key': 'fixed_ip', 'output_value': '1.2.3.4'}]
+        )
+        oc.stack_get.return_value = stack
         profile = docker_profile.DockerProfile('container', self.spec)
+        profile._orchestrationclient = oc
         obj = mock.Mock()
+
         host_ip = profile._get_host_ip(obj, 'fake_node', 'os.heat.stack')
+
         self.assertEqual('1.2.3.4', host_ip)
-        heatclient.stack_get.assert_called_once_with('fake_node')
-        # No outputs in stack
-        stack.outputs = None
+        oc.stack_get.assert_called_once_with('fake_node')
+
+    def test_get_host_ip_heat_stack_no_outputs(self):
+        oc = mock.Mock()
+        stack = mock.Mock(outputs=None)
+        oc.stack_get.return_value = stack
+        profile = docker_profile.DockerProfile('container', self.spec)
+        profile._orchestrationclient = oc
+        obj = mock.Mock()
+
         ex = self.assertRaises(exc.EResourceCreation,
                                profile._get_host_ip,
                                obj, 'fake_node', 'os.heat.stack')
+
         msg = _("Failed in creating container: Output 'fixed_ip' is "
                 "missing from the provided stack node.")
         self.assertEqual(msg, ex.message)
 
+    @mock.patch.object(docker_profile.DockerProfile, '_add_dependents_to_host')
+    @mock.patch.object(context, 'get_admin_context')
     @mock.patch.object(docker_profile.DockerProfile, 'docker')
-    def test_do_create(self, mock_docker):
+    def test_do_create(self, mock_docker, mock_ctx, mock_add):
         dockerclient = mock.Mock()
         mock_docker.return_value = dockerclient
         container = {'Id': 'd' * 64}
         dockerclient.container_create.return_value = container
         container_id = 'd' * 36
         profile = docker_profile.DockerProfile('container', self.spec)
-        obj = mock.Mock()
-        self.assertEqual(container_id, profile.do_create(obj))
+        host = mock.Mock()
+        cluster = mock.Mock()
+        profile.host = host
+        profile.cluster = cluster
+        obj = mock.Mock(id='fake_con_id')
+        ret_container_id = profile.do_create(obj)
+        mock_add.assert_any_call(host, 'fake_con_id')
+        mock_add.assert_any_call(cluster, 'fake_con_id')
+        self.assertEqual(container_id, ret_container_id)
         params = {
             'image': 'hello-world',
             'name': 'docker_container',
@@ -285,24 +307,54 @@ class TestContainerDockerProfile(base.SenlinTestCase):
         }
         dockerclient.container_create.assert_called_once_with(**params)
 
+    @mock.patch.object(context, 'get_admin_context')
+    def test_add_dependents_to_host(self, mock_ctx):
+        host = mock.Mock(dependents={}, id='fake_host')
+        container = mock.Mock()
+        ctx = mock.Mock()
+        mock_ctx.return_value = ctx
+        profile = docker_profile.DockerProfile('container', self.spec)
+        profile.host = host
+        profile._add_dependents_to_host(host, container)
+        dependents = {'containers': [container]}
+        profile.host.add_dependents.assert_any_call(ctx, dependents)
+
+        dep = {'containers': ['container1']}
+        host = mock.Mock(dependents=dep, id='fake_host')
+        profile.host = host
+        dependents = {'containers': ['container1', container]}
+        profile._add_dependents_to_host(host, container)
+        profile.host.add_dependents.assert_any_call(ctx, dependents)
+
     @mock.patch.object(docker_profile.DockerProfile, 'docker')
     def test_do_create_failed(self, mock_docker):
-        mock_docker.side_effect = Exception
+        mock_docker.side_effect = exc.InternalError
         profile = docker_profile.DockerProfile('container', self.spec)
         obj = mock.Mock()
         self.assertRaises(exc.EResourceCreation,
                           profile.do_create, obj)
 
+    @mock.patch.object(docker_profile.DockerProfile,
+                       '_remove_dependents_from_host')
     @mock.patch.object(docker_profile.DockerProfile, 'docker')
-    def test_do_delete(self, mock_docker):
-        obj = mock.Mock()
+    def test_do_delete(self, mock_docker, mock_dep):
+        obj = mock.Mock(id='container1')
         physical_id = mock.Mock()
         obj.physical_id = physical_id
         dockerclient = mock.Mock()
         mock_docker.return_value = dockerclient
+        host = mock.Mock()
         profile = docker_profile.DockerProfile('container', self.spec)
+        profile.host = host
+        profile.cluster = None
         self.assertIsNone(profile.do_delete(obj))
-        dockerclient.container_delete.assert_called_once_with(physical_id)
+        dockerclient.container_delete.assert_any_call(physical_id)
+        mock_dep.assert_any_call(host, 'container1')
+
+        cluster = mock.Mock()
+        profile.cluster = cluster
+        self.assertIsNone(profile.do_delete(obj))
+        mock_dep.assert_any_call(cluster, 'container1')
 
     def test_do_delete_no_physical_id(self):
         obj = mock.Mock()
@@ -315,7 +367,19 @@ class TestContainerDockerProfile(base.SenlinTestCase):
         obj = mock.Mock()
         physical_id = mock.Mock()
         obj.physical_id = physical_id
-        mock_docker.side_effect = Exception
+        mock_docker.side_effect = exc.InternalError
         profile = docker_profile.DockerProfile('container', self.spec)
         self.assertRaises(exc.EResourceDeletion,
                           profile.do_delete, obj)
+
+    @mock.patch.object(context, 'get_admin_context')
+    def test_remove_dependents_from_host(self, mock_ctx):
+        ctx = mock.Mock()
+        mock_ctx.return_value = ctx
+        dependents = {'containers': ['con1', 'con2', 'con3']}
+        host = mock.Mock(dependents=dependents)
+        profile = docker_profile.DockerProfile('container', self.spec)
+        profile._remove_dependents_from_host(host, 'con2')
+        new_deps = {'containers': ['con1', 'con3']}
+        self.assertEqual(new_deps, host.dependents)
+        host.update_dependents.assert_called_once_with(ctx, new_deps)

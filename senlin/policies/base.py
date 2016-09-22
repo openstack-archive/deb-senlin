@@ -19,6 +19,7 @@ from senlin.common import exception
 from senlin.common.i18n import _
 from senlin.common import schema
 from senlin.common import utils
+from senlin.drivers import base as driver
 from senlin.engine import environment
 from senlin.objects import credential as co
 from senlin.objects import policy as po
@@ -110,6 +111,10 @@ class Policy(object):
             version)
 
         self.singleton = True
+        self._novaclient = None
+        self._keystoneclient = None
+        self._networkclient = None
+        self._lbaasclient = None
 
     @classmethod
     def _from_object(cls, policy):
@@ -148,7 +153,7 @@ class Policy(object):
             db_policy = po.Policy.get(context, policy_id,
                                       project_safe=project_safe)
             if db_policy is None:
-                raise exception.PolicyNotFound(policy=policy_id)
+                raise exception.ResourceNotFound(type='policy', id=policy_id)
 
         return cls._from_object(db_policy)
 
@@ -225,6 +230,83 @@ class Policy(object):
 
         return data.get('data', None)
 
+    def _build_conn_params(self, user, project):
+        """Build trust-based connection parameters.
+
+        :param user: the user for which the trust will be checked.
+        :param object: the user for which the trust will be checked.
+        """
+        service_creds = senlin_context.get_service_context()
+        params = {
+            'username': service_creds.get('username'),
+            'password': service_creds.get('password'),
+            'auth_url': service_creds.get('auth_url'),
+            'user_domain_name': service_creds.get('user_domain_name')
+        }
+
+        cred = co.Credential.get(oslo_context.get_current(), user, project)
+        if cred is None:
+            raise exception.TrustNotFound(trustor=user)
+        params['trust_id'] = cred.cred['openstack']['trust']
+
+        return params
+
+    def keystone(self, user, project):
+        """Construct keystone client based on object.
+
+        :param user: The ID of the requesting user.
+        :param project: The ID of the requesting project.
+        :returns: A reference to the keystone client.
+        """
+        if self._keystoneclient is not None:
+            return self._keystoneclient
+        params = self._build_conn_params(user, project)
+        self._keystoneclient = driver.SenlinDriver().identity(params)
+        return self._keystoneclient
+
+    def nova(self, user, project):
+        """Construct nova client based on user and project.
+
+        :param user: The ID of the requesting user.
+        :param project: The ID of the requesting project.
+        :returns: A reference to the nova client.
+        """
+        if self._novaclient is not None:
+            return self._novaclient
+
+        params = self._build_conn_params(user, project)
+        self._novaclient = driver.SenlinDriver().compute(params)
+        return self._novaclient
+
+    def network(self, user, project):
+        """Construct network client based on user and project.
+
+        :param user: The ID of the requesting user.
+        :param project: The ID of the requesting project.
+        :returns: A reference to the network client.
+        """
+        if self._networkclient is not None:
+            return self._networkclient
+
+        params = self._build_conn_params(user, project)
+        self._networkclient = driver.SenlinDriver().network(params)
+        return self._networkclient
+
+    def lbaas(self, user, project):
+        """Construct LB service client based on user and project.
+
+        :param user: The ID of the requesting user.
+        :param project: The ID of the requesting project.
+        :returns: A reference to the LB service client.
+        """
+        if self._lbaasclient is not None:
+            return self._lbaasclient
+
+        params = self._build_conn_params(user, project)
+
+        self._lbaasclient = driver.SenlinDriver().loadbalancing(params)
+        return self._lbaasclient
+
     def attach(self, cluster):
         '''Method to be invoked before policy is attached to a cluster.
 
@@ -278,24 +360,3 @@ class Policy(object):
             'data': self.data,
         }
         return pb_dict
-
-    def _build_conn_params(self, user, project):
-        """Build trust-based connection parameters.
-
-        :param user: the user for which the trust will be checked.
-        :param object: the user for which the trust will be checked.
-        """
-        service_creds = senlin_context.get_service_context()
-        params = {
-            'username': service_creds.get('username'),
-            'password': service_creds.get('password'),
-            'auth_url': service_creds.get('auth_url'),
-            'user_domain_name': service_creds.get('user_domain_name')
-        }
-
-        cred = co.Credential.get(oslo_context.get_current(), user, project)
-        if cred is None:
-            raise exception.TrustNotFound(trustor=user)
-        params['trust_id'] = cred.cred['openstack']['trust']
-
-        return params

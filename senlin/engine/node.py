@@ -29,7 +29,7 @@ class Node(object):
 
     All operations are performed without further checking because the
     checkings are supposed to be done before/after/during an action is
-    excuted.
+    executed.
     """
 
     statuses = (
@@ -70,6 +70,7 @@ class Node(object):
         self.status_reason = kwargs.get('status_reason', 'Initializing')
         self.data = kwargs.get('data', {})
         self.metadata = kwargs.get('metadata', {})
+        self.dependents = kwargs.get('dependents', {})
         self.rt = {}
 
         if context is not None:
@@ -86,7 +87,7 @@ class Node(object):
         try:
             profile = pb.Profile.load(context, profile_id=self.profile_id,
                                       project_safe=False)
-        except exc.ProfileNotFound:
+        except exc.ResourceNotFound:
             LOG.debug(_('Profile not found: %s'), self.profile_id)
 
         self.rt = {'profile': profile}
@@ -117,6 +118,7 @@ class Node(object):
             'status_reason': self.status_reason,
             'meta_data': self.metadata,
             'data': self.data,
+            'dependents': self.dependents,
         }
 
         if self.id:
@@ -153,6 +155,7 @@ class Node(object):
             'status_reason': obj.status_reason,
             'data': obj.data,
             'metadata': obj.metadata,
+            'dependents': obj.dependents,
         }
 
         return cls(obj.name, obj.profile_id, obj.cluster_id,
@@ -164,7 +167,7 @@ class Node(object):
         if db_node is None:
             db_node = no.Node.get(context, node_id, project_safe=project_safe)
             if db_node is None:
-                raise exc.NodeNotFound(node=node_id)
+                raise exc.ResourceNotFound(type='node', id=node_id)
 
         return cls._from_object(context, db_node)
 
@@ -202,6 +205,7 @@ class Node(object):
             'status_reason': self.status_reason,
             'data': self.data,
             'metadata': self.metadata,
+            'dependents': self.dependents,
             'profile_name': profile_name,
         }
         return node_dict
@@ -237,6 +241,16 @@ class Node(object):
         if not self.physical_id:
             return {}
         return pb.Profile.get_details(context, self)
+
+    def update_dependents(self, context, dependents):
+        """Update dependency information of node's property.
+
+        :param context: An instance of request context.
+        :param dependents: The dependency information.
+        """
+
+        values = {'dependents': dependents}
+        no.Node.update(context, self.id, values)
 
     def do_create(self, context):
         if self.status != self.INIT:
@@ -353,13 +367,15 @@ class Node(object):
         try:
             res = pb.Profile.check_object(context, self)
         except exc.EResourceOperation as ex:
-            self.set_status(self.ERROR, six.text_type(ex))
+            self.set_status(context, self.ERROR, six.text_type(ex))
             return False
 
         if res:
-            self.set_status(self.ACTIVE, _("Check: Node is ACTIVE."))
+            self.set_status(context, self.ACTIVE,
+                            _("Check: Node is ACTIVE."))
         else:
-            self.set_status(self.ERROR, _("Check: Node is not ACTIVE."))
+            self.set_status(context, self.ERROR,
+                            _("Check: Node is not ACTIVE."))
 
         return res
 

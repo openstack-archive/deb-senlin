@@ -10,7 +10,6 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from oslo_log import log as logging
 import random
 import six
 
@@ -19,13 +18,10 @@ from senlin.common import exception as exc
 from senlin.common.i18n import _
 from senlin.common import schema
 from senlin.common import utils
-from senlin.drivers import base as driver_base
 from senlin.drivers.container import docker_v1 as docker_driver
 from senlin.engine import cluster
 from senlin.engine import node
 from senlin.profiles import base
-
-LOG = logging.getLogger(__name__)
 
 
 class DockerProfile(base.Profile):
@@ -76,9 +72,9 @@ class DockerProfile(base.Profile):
         super(DockerProfile, self).__init__(type_name, name, **kwargs)
 
         self._dockerclient = None
-        self._novaclient = None
-        self._heatclient = None
         self.container_id = None
+        self.host = None
+        self.cluster = None
 
     def docker(self, obj):
         """Construct docker client based on object.
@@ -93,15 +89,15 @@ class DockerProfile(base.Profile):
         host_node = self.properties.get(self.HOST_NODE, None)
         host_cluster = self.properties.get(self.HOST_CLUSTER, None)
         ctx = context.get_admin_context()
-        host = self._get_host(ctx, host_node, host_cluster)
+        self.host = self._get_host(ctx, host_node, host_cluster)
 
         # TODO(Anyone): Check node.data for per-node host selection
-        host_type = host.rt['profile'].type_name
+        host_type = self.host.rt['profile'].type_name
         if host_type not in self._VALID_HOST_TYPES:
             msg = _("Type of host node (%s) is not supported") % host_type
             raise exc.EResourceCreation(type='container', message=msg)
 
-        host_ip = self._get_host_ip(obj, host.physical_id, host_type)
+        host_ip = self._get_host_ip(obj, self.host.physical_id, host_type)
         if host_ip is None:
             msg = _("Unable to determine the IP address of host node")
             raise exc.EResourceCreation(type='container', message=msg)
@@ -122,8 +118,9 @@ class DockerProfile(base.Profile):
         if host_node is not None:
             host = self._get_specified_node(ctx, host_node)
             if host_cluster is not None:
-                cluster = self._get_host_cluster(ctx, host_cluster)
-                if host.id not in cluster.nodes:
+                self.cluster = self._get_host_cluster(ctx, host_cluster)
+                if host.id not in [
+                        node.id for node in self.cluster.rt['nodes']]:
                     msg = _("Host node %(host_node)s does not belong to "
                             "cluster %(host_cluster)s") % {
                         "host_node": host_node,
@@ -146,8 +143,8 @@ class DockerProfile(base.Profile):
 
         try:
             host_cluster = cluster.Cluster.load(ctx, cluster_id=host_cluster)
-        except exc.ClusterNotFound:
-            msg = _("The host cluster (%s) could not be found") % host_cluster
+        except exc.ResourceNotFound as ex:
+            msg = ex.enhance_msg('host', ex)
             raise exc.EResourceCreation(type='container', message=msg)
         return host_cluster
 
@@ -160,8 +157,8 @@ class DockerProfile(base.Profile):
 
         try:
             host_node = node.Node.load(ctx, node_id=host_node)
-        except exc.NodeNotFound:
-            msg = _("The host_node (%s) could not be found") % host_node
+        except exc.ResourceNotFound as ex:
+            msg = ex.enhance_msg('host', ex)
             raise exc.EResourceCreation(type='container', message=msg)
         return host_node
 
@@ -172,8 +169,8 @@ class DockerProfile(base.Profile):
         :param host_cluster: The uuid of the hosting cluster.
         """
 
-        cluster = self._get_host_cluster(ctx, host_cluster)
-        nodes = cluster.nodes
+        self.cluster = self._get_host_cluster(ctx, host_cluster)
+        nodes = self.cluster.rt['nodes']
         if len(nodes) == 0:
             msg = _("The cluster (%s) contains no nodes") % host_cluster
             raise exc.EResourceCreation(type='container', message=msg)
@@ -201,13 +198,13 @@ class DockerProfile(base.Profile):
         """
         host_ip = None
         if host_type == self.HOST_NOVA_SERVER:
-            server = self.nova(obj).server_get(host_node)
+            server = self.compute(obj).server_get(host_node)
             private_addrs = server.addresses['private']
             for addr in private_addrs:
                 if addr['version'] == 4 and addr['OS-EXT-IPS:type'] == 'fixed':
                     host_ip = addr['addr']
         elif host_type == self.HOST_HEAT_STACK:
-            stack = self.heat(obj).stack_get(host_node)
+            stack = self.orchestration(obj).stack_get(host_node)
             outputs = stack.outputs or {}
             if outputs:
                 for output in outputs:
@@ -222,33 +219,22 @@ class DockerProfile(base.Profile):
 
         return host_ip
 
-    def nova(self, obj):
-        """Construct nova client based on object.
+    def _add_dependents_to_host(self, host, container):
+        """Add container node id to host property.
 
-        :param obj: Object for which the client is created. It is expected to
-                    be None when retrieving an existing client. When creating
-                    a client, it contains the user and project to be used.
+        :param host: The host(node or cluster) to host the container
+        :param container: The id of the container node
         """
 
-        if self._novaclient is not None:
-            return self._novaclient
-        params = self._build_conn_params(obj.user, obj.project)
-        self._novaclient = driver_base.SenlinDriver().compute(params)
-        return self._novaclient
+        ctx = context.get_admin_context()
+        containers = host.dependents.get('containers', None)
+        if not containers:
+            dependents = {'containers': [container]}
+        else:
+            containers.append(container)
+            dependents = {'containers': containers}
 
-    def heat(self, obj):
-        """Construct heat client based on object.
-
-        :param obj: Object for which the client is created. It is expected to
-                    be None when retrieving an existing client. When creating
-                    a client, it contains the user and project to be used.
-        """
-        if self._heatclient is not None:
-            return self._heatclient
-
-        params = self._build_conn_params(obj.user, obj.project)
-        self._heatclient = driver_base.SenlinDriver().orchestration(params)
-        return self._heatclient
+        host.add_dependents(ctx, dependents)
 
     def do_create(self, obj):
         """Create a container instance using the given profile.
@@ -267,16 +253,30 @@ class DockerProfile(base.Profile):
             'command': self.properties[self.COMMAND],
         }
 
-        # TODO(Anyone): Wrap docker exceptions at the driver layer so they
-        # are converted to exc.InternalError
         try:
-            container = self.docker(obj).container_create(**params)
-        except Exception as ex:
+            dockerclient = self.docker(obj)
+            self._add_dependents_to_host(self.host, obj.id)
+            if self.cluster is not None:
+                self._add_dependents_to_host(self.cluster, obj.id)
+            container = dockerclient.container_create(**params)
+        except exc.InternalError as ex:
             raise exc.EResourceCreation(type='container',
                                         message=six.text_type(ex))
 
         self.container_id = container['Id'][:36]
         return self.container_id
+
+    def _remove_dependents_from_host(self, host, container):
+        """Remove dependency record of host
+
+        :param host: The host(node or cluster) to host the container
+        :param container: The id of the container node
+        """
+        ctx = context.get_admin_context()
+        containers = host.dependents['containers']
+        containers.remove(container)
+        dependents = {'containers': containers}
+        host.update_dependents(ctx, dependents)
 
     def do_delete(self, obj):
         """Delete a container node.
@@ -287,12 +287,13 @@ class DockerProfile(base.Profile):
         if not obj.physical_id:
             return
 
-        # TODO(Anyone): Wrap docker exceptions at the driver layer so they
-        # are converted to exc.InternalError
         try:
             self.docker(obj).container_delete(obj.physical_id)
-        except Exception as ex:
+        except exc.InternalError as ex:
             raise exc.EResourceDeletion(type='container',
                                         id=obj.physical_id,
                                         message=six.text_type(ex))
+        self._remove_dependents_from_host(self.host, obj.id)
+        if self.cluster is not None:
+            self._remove_dependents_from_host(self.cluster, obj.id)
         return
