@@ -63,8 +63,8 @@ Build-Depends-Indep: git,
                      tempest (>= 1:12.1.0),
                      testrepository,
 Standards-Version: 3.9.8
-Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-senlin
-Vcs-Git: https://git.openstack.org/openstack/deb-senlin
+Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-senlin?h=debian%2Fnewton
+Vcs-Git: https://git.openstack.org/openstack/deb-senlin -b debian/newton
 Homepage: https://github.com/stackforge/senlin
 
 Package: python-senlin
