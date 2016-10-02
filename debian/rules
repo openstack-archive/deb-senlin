@@ -56,9 +56,7 @@ override_dh_auto_install:
 	mkdir -p $(CURDIR)/debian/senlin-common/usr/share/senlin-common
 	PYTHONPATH=$(CURDIR)/debian/tmp oslo-config-generator --output-file $(CURDIR)/debian/senlin-common/usr/share/senlin-common/senlin.conf \
 		--wrap-width 140 \
-		--namespace senlin.common.config \
-		--namespace senlin.api.common.wsgi \
-		--namespace senlin.engine.health_manager \
+		--namespace senlin.config \
 		--namespace keystonemiddleware.auth_token \
 		--namespace oslo.db \
 		--namespace oslo.log \
