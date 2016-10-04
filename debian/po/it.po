@@ -1,13 +1,13 @@
 # Italian description of senlin debconf messages.
-# Copyright (C) 2012, senlin package copyright holder.
+# Copyright (C) 2016, senlin package copyright holder.
 # This file is distributed under the same license as the senlin package.
-# Beatrice Torracca <beatricet@libero.it>, 2012, 2013, 2014.
+# Beatrice Torracca <beatricet@libero.it>, 2012, 2013, 2014, 2016.
 msgid ""
 msgstr ""
 "Project-Id-Version: senlin\n"
 "Report-Msgid-Bugs-To: senlin@packages.debian.org\n"
 "POT-Creation-Date: 2016-01-23 13:55+0000\n"
-"PO-Revision-Date: 2014-04-21 10:03+0200\n"
+"PO-Revision-Date: 2016-08-08 16:49+0200\n"
 "Last-Translator: Beatrice Torracca <beatricet@libero.it>\n"
 "Language-Team: Italian <debian-l10n-italian@lists.debian.org>\n"
 "Language: it\n"
@@ -26,7 +26,6 @@ msgstr "Impostare un database per Senlin?"
 #. Type: boolean
 #. Description
 #: ../senlin-common.templates:2001
-#, fuzzy
 #| msgid ""
 #| "No database has been set up for senlin-registry or senlin-api to use. "
 #| "Before continuing, you should make sure you have the following "
@@ -35,9 +34,8 @@ msgid ""
 "No database has been set up for Senlin to use. Before continuing, you should "
 "make sure you have the following information:"
 msgstr ""
-"Non è stato impostato alcun database per essere usato da senlin-registry o "
-"senlin-api. Prima di continuare assicurarsi di avere le seguenti "
-"informazioni:"
+"Non è stato impostato alcun database per essere usato da Senlin. Prima di "
+"continuare assicurarsi di avere le seguenti informazioni:"
 
 #. Type: boolean
 #. Description
@@ -83,7 +81,6 @@ msgstr "Nome host del server di autenticazione:"
 #. Type: string
 #. Description
 #: ../senlin-common.templates:3001
-#, fuzzy
 #| msgid ""
 #| "Please specify the hostname of the authentication server for Senlin. "
 #| "Typically this is also the hostname of the OpenStack Identity Service "
@@ -92,8 +89,8 @@ msgid ""
 "Please specify the hostname of the authentication server. Typically this is "
 "also the hostname of the OpenStack Identity Service (Keystone)."
 msgstr ""
-"Specificare il nome host del server di autenticazione per Senlin. "
-"Tipicamente, è anche il nome host dell'OpenStack Identity Service (Keystone)."
+"Specificare il nome host del server di autenticazione. Tipicamente, è anche "
+"il nome host dell'OpenStack Identity Service (Keystone)."
 
 #. Type: string
 #. Description
@@ -197,159 +194,3 @@ msgstr "Password per la connessione al server RabbitMQ:"
 #: ../senlin-common.templates:9001
 msgid "Please specify the password used to connect to the RabbitMQ server."
 msgstr "Specificare la password da usare per connettersi al server RabbitMQ."
-
-#~ msgid "keystone"
-#~ msgstr "keystone"
-
-#~ msgid "caching"
-#~ msgstr "caching"
-
-#~ msgid "keystone+caching"
-#~ msgstr "keystone+caching"
-
-#~ msgid "cachemanagement"
-#~ msgstr "cachemanagement"
-
-#~ msgid "keystone+cachemanagement"
-#~ msgstr "keystone+cachemanagement"
-
-#~ msgid "Pipeline flavor:"
-#~ msgstr "Tipo di pipeline:"
-
-#~| msgid "Please specify the flavor of pipeline to be used by Senlin."
-#~ msgid "Please specify the flavor of the pipeline to be used by Senlin."
-#~ msgstr "Specificare il tipo di pipeline da usare con Senlin."
-
-#~ msgid ""
-#~ "If you use the OpenStack Identity Service (Keystone), you might want to "
-#~ "select \"keystone\". If you don't use this service, you can safely choose "
-#~ "\"caching\" only."
-#~ msgstr ""
-#~ "Se si usa OpenStack Identity Service (Keystone) si può selezionare "
-#~ "«keystone». Se non si usa questo servizio, si può senza problemi "
-#~ "scegliere semplicemente «caching»."
-
-#~| msgid "Register Senlin in the keystone endpoint catalog?"
-#~ msgid "Register Senlin in the Keystone endpoint catalog?"
-#~ msgstr "Registrare Senlin nel catalogo dei punti terminali di Keystone?"
-
-#~| msgid ""
-#~| "Each Openstack services (each API) should be registered in order to be "
-#~| "accessible. This is done using \"keystone service-create\" and "
-#~| "\"keystone endpoint-create\". Select if you want to run these commands "
-#~| "now."
-#~ msgid ""
-#~ "Each OpenStack service (each API) should be registered in order to be "
-#~ "accessible. This is done using \"keystone service-create\" and \"keystone "
-#~ "endpoint-create\". This can be done automatically now."
-#~ msgstr ""
-#~ "Ogni servizio OpenStack (ogni API) dovrebbe essere registrato per poter "
-#~ "essere accessibile. Ciò viene fatto usando «keystone service-create» e "
-#~ "«keystone endpoint-create». Ciò può essere fatto ora automaticamente."
-
-#~| msgid ""
-#~| "Note that you will need to have an up and running keystone server on "
-#~| "which to connect using the Keystone auth token."
-#~ msgid ""
-#~ "Note that you will need to have an up and running Keystone server on "
-#~ "which to connect using the Keystone authentication token."
-#~ msgstr ""
-#~ "Notare che sarà necessario avere un server Keystone in funzione a cui "
-#~ "connettersi usando il token di autenticazione Keystone."
-
-#~| msgid "Keystone IP address:"
-#~ msgid "Keystone server IP address:"
-#~ msgstr "Indirizzo IP del server Keystone:"
-
-#~| msgid ""
-#~| "Enter the IP address of your keystone server, so that senlin-api can "
-#~| "contact Keystone to do the Senlin service and endpoint creation."
-#~ msgid ""
-#~ "Please enter the IP address of the Keystone server, so that senlin-api "
-#~ "can contact Keystone to do the Senlin service and endpoint creation."
-#~ msgstr ""
-#~ "Inserire l'indirizzo IP del server Keystone, in modo che senlin-api possa "
-#~ "contattare Keystone per effettuare la creazione del servizio e del punto "
-#~ "terminale Senlin."
-
-#~| msgid "Keystone Auth Token:"
-#~ msgid "Keystone authentication token:"
-#~ msgstr "Token di autenticazione Keystone:"
-
-#~| msgid ""
-#~| "To configure its endpoint in Keystone, senlin-api needs the Keystone "
-#~| "auth token."
-#~ msgid ""
-#~ "To configure its endpoint in Keystone, senlin-api needs the Keystone "
-#~ "authentication token."
-#~ msgstr ""
-#~ "Per configurare il proprio punto terminale in Keystone, senlin-api ha "
-#~ "bisogno del token di autenticazione Keystone."
-
-#~ msgid "Senlin endpoint IP address:"
-#~ msgstr "Indirizzo IP del punto terminale Senlin:"
-
-#~| msgid ""
-#~| "Enter the IP address that will be used to contact Senlin (eg: the Senlin "
-#~| "endpoint IP address)."
-#~ msgid "Please enter the IP address that will be used to contact Senlin."
-#~ msgstr "Inserire l'indirizzo IP che verrà usato per contattare Senlin."
-
-#~ msgid ""
-#~ "This IP address should be accessible from the clients that will use this "
-#~ "service, so if you are installing a public cloud, this should be a public "
-#~ "IP address."
-#~ msgstr ""
-#~ "Questo indirizzo IP dovrebbe essere accessibile dai client che useranno "
-#~ "il servizio, perciò se si sta installando una cloud pubblica, questo "
-#~ "dovrebbe essere un indirizzo IP pubblico."
-
-#~ msgid "Name of the region to register:"
-#~ msgstr "Nome della regione da registrare:"
-
-#~| msgid ""
-#~| "Openstack can be used using availability zones, with each region "
-#~| "representing a location. Please enter the zone that you wish to use when "
-#~| "registering the endpoint."
-#~ msgid ""
-#~ "OpenStack supports using availability zones, with each region "
-#~ "representing a location. Please enter the zone that you wish to use when "
-#~ "registering the endpoint."
-#~ msgstr ""
-#~ "OpenStack gestisce le zone di disponibilità, con ogni regione che "
-#~ "rappresenta una posizione. Inserire la zona che si desidera usare durante "
-#~ "la registrazione del punto terminale."
-
-#~ msgid "Set up a database for senlin-registry?"
-#~ msgstr "Impostare un database per senlin-registry?"
-
-#~ msgid ""
-#~ "No database has been set up for senlin-registry to use. Before "
-#~ "continuing, you should make sure you have:"
-#~ msgstr ""
-#~ "Non è stato impostato alcun database per essere usato da senlin-registry. "
-#~ "Prima di continuare ci si dovrebbe assicurare di avere:"
-
-#~ msgid ""
-#~ " - the server host name (that server must allow TCP connections\n"
-#~ "   from this machine);\n"
-#~ " - a username and password to access the database.\n"
-#~ " - A database type that you want to use."
-#~ msgstr ""
-#~ " - il nome host del server (tale server deve permettere le connessioni\n"
-#~ "   TCP da questo macchina);\n"
-#~ " - un nome utente e una password per accedere al database;\n"
-#~ " - un tipo di database che si desidera usare."
-
-#~ msgid ""
-#~ "You can change this setting later on by running 'dpkg-reconfigure -plow "
-#~ "senlin-registry"
-#~ msgstr ""
-#~ "È possibile cambiare questa impostazione successivamente eseguendo \"dpkg-"
-#~ "reconfigure -plow senlin-registry\""
-
-#~ msgid "Auth server URL:"
-#~ msgstr "URL del server di autenticazione:"
-
-#~ msgid "Auth server admin token:"
-#~ msgstr "Token di ammnistrazione del server di autenticazione:"
