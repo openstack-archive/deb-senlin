@@ -316,9 +316,9 @@ delete it from the Senlin database using the following command::
 
 Note that in this command you can use the name, the ID or the "short ID" to
 specify the profile object you want to delete. If the specified criteria
-cannot match any profiles, you will get a ``ProfileNotFound`` exception.
-If more than one profile matches the criteria, you will get a
-``MultipleChoices`` exception. For example::
+cannot match any profiles, you will get a ``ResourceNotFound`` exception.If
+more than one profile matches the criteria, you will get a ``MultipleChoices``
+exception. For example::
 
   $ openstack cluster profile delete my
   ERROR(404): The profile (my) could not be found.
@@ -335,5 +335,5 @@ creation and usage:
 - :doc:`Creating and Managing Clusters <clusters>`
 - :doc:`Creating and Managing Nodes <nodes>`
 - :doc:`Managing Cluster Membership <membership>`
-- :doc:`Examinging Actions <actions>`
-- :doc:`Browing Events <events>`
+- :doc:`Examining Actions <actions>`
+- :doc:`Browsing Events <events>`

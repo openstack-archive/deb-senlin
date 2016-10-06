@@ -32,6 +32,7 @@ from senlin.common import schema
 from senlin.common import utils
 from senlin.objects import cluster as co
 from senlin.objects import cluster_policy as cpo
+from senlin.objects import node as no
 from senlin.policies import base
 
 
@@ -151,7 +152,7 @@ class AffinityPolicy(base.Policy):
 
         if group_name:
             try:
-                server_group = nc.find_server_group(group_name, True)
+                server_group = nc.server_group_find(group_name, True)
             except exc.InternalError as ex:
                 msg = _("Failed in retrieving servergroup '%s'."
                         ) % group_name
@@ -177,7 +178,7 @@ class AffinityPolicy(base.Policy):
             if not group_name:
                 group_name = 'server_group_%s' % utils.random_name()
             try:
-                server_group = nc.create_server_group(
+                server_group = nc.server_group_create(
                     name=group_name,
                     policies=[group.get(self.GROUP_POLICIES)])
             except Exception as ex:
@@ -219,7 +220,7 @@ class AffinityPolicy(base.Policy):
         if group_id and not inherited_group:
             try:
                 nc = self.nova(cluster.user, cluster.project)
-                nc.delete_server_group(group_id)
+                nc.server_group_delete(group_id)
             except Exception as ex:
                 msg = _('Failed in deleting servergroup.')
                 LOG.exception(_LE('%(msg)s: %(ex)s') % {
@@ -257,7 +258,8 @@ class AffinityPolicy(base.Policy):
             count = 1
         else:  # CLUSTER_RESIZE
             db_cluster = co.Cluster.get(action.context, cluster_id)
-            su.parse_resize_params(action, db_cluster)
+            current = no.Node.count_by_cluster(action.context, cluster_id)
+            su.parse_resize_params(action, db_cluster, current)
             if 'creation' not in action.data:
                 return
             count = action.data['creation']['count']

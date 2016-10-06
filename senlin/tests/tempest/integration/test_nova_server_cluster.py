@@ -10,9 +10,12 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import six
+
 from tempest.lib import decorators
 from tempest import test
 
+from senlin.tests.tempest.common import constants
 from senlin.tests.tempest.common import utils
 from senlin.tests.tempest.integration import base
 
@@ -21,8 +24,12 @@ class TestNovaServerCluster(base.BaseSenlinIntegrationTest):
 
     def setUp(self):
         super(TestNovaServerCluster, self).setUp()
-        self.profile_id = utils.create_a_profile(self)
+        keypair_name = utils.create_a_keypair(self)
+        self.spec = constants.spec_nova_server
+        self.spec['properties']['key_name'] = keypair_name
+        self.profile_id = utils.create_a_profile(self, self.spec)
         self.addCleanup(utils.delete_a_profile, self, self.profile_id)
+        self.addCleanup(utils.delete_a_keypair, self, keypair_name)
 
     @test.attr(type=['integration'])
     @decorators.idempotent_id('c26eae1c-5c46-4a5f-be63-954d7229c8cc')
@@ -43,11 +50,21 @@ class TestNovaServerCluster(base.BaseSenlinIntegrationTest):
         self.assertEqual(desired_capacity, cluster['desired_capacity'])
         self.assertEqual(desired_capacity, len(cluster['nodes']))
         for nid in cluster['nodes']:
-            # TODO(Yanyan Hu)verify nova server property as well
-            # after node show datail works.
-            node = utils.get_a_node(self, nid)
+            node = utils.get_a_node(self, nid, show_details=True)
             self.assertEqual('ACTIVE', node['status'])
             self.assertEqual(cluster_id, node['cluster_id'])
+            self.assertIsNotNone(node['details'])
+            self.assertEqual('ACTIVE', node['details']['status'])
+            self.assertEqual(self.spec['properties']['flavor'],
+                             node['details']['flavor'])
+            self.assertEqual(self.spec['properties']['name'],
+                             node['details']['name'])
+            metadata = {
+                'cluster_id': cluster['id'],
+                'cluster_node_id': node['id'],
+                'cluster_node_index': six.text_type(node['index'])
+            }
+            self.assertEqual(metadata, node['details']['metadata'])
 
         # Delete cluster
         utils.delete_a_cluster(self, cluster_id)

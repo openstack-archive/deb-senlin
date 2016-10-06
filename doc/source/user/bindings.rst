@@ -66,14 +66,14 @@ Filtering the List
 The :program:`openstack cluster` command also supports options for filtering
 the policy list at the server side. The option :option:`--filters` can be used
 for this purpose. For example, the following command filters clusters by the
-``enabled`` field::
+``is_enabled`` field::
 
   $ openstack cluster policy binding list --filters enabled=True c3
-  +-----------+--------+-----------------------+---------+
-  | policy_id | policy | type                  | enabled |
-  +-----------+--------+-----------------------+---------+
-  | 0705f0f4  | up01   | senlin.policy.scaling | True    |
-  +-----------+--------+-----------------------+---------+
+  +-----------+-------------+-----------------------+------------+
+  | policy_id | policy_name | policy_type           | is_enabled |
+  +-----------+-------------+-----------------------+------------+
+  | 0705f0f4  | up01        | senlin.policy.scaling | True       |
+  +-----------+-------------+-----------------------+------------+
 
 The option :option:`--filters` accepts a list of key-value pairs separated by
 semicolon (``;``), where each key-value pair is expected to be of format
@@ -124,12 +124,15 @@ example::
   +--------------+--------------------------------------+
   | Property     | Value                                |
   +--------------+--------------------------------------+
-  | cluster_id   | 2b7e9294-b5cd-470f-b191-b18f7e672495 |
   | cluster_name | c3                                   |
-  | enabled      | True                                 |
-  | policy       | dp01                                 |
+  | data         | None                                 |
+  | id           | 2b7e9294-b5cd-470f-b191-b18f7e672495 |
+  | is_enabled   | True                                 |
+  | location     | None                                 |
+  | name         | None                                 |
   | policy_id    | 239d7212-6196-4a89-9446-44d28717d7de |
-  | type         | senlin.policy.deletion-1.0           |
+  | policy_name  | dp01                                 |
+  | policy_type  | senlin.policy.deletion-1.0           |
   +--------------+--------------------------------------+
 
 You can use the name, the ID or the "short ID" of a policy and/or a cluster to

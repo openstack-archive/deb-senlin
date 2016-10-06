@@ -145,7 +145,6 @@ class ProfileControllerTest(shared.ControllerTest, base.SenlinTestCase):
         params = {
             'type': 'some_type',
             'name': 'fake name',
-            'metadata': 'fake_data',
         }
         req = self._get('/profiles', params=params)
 
@@ -159,10 +158,9 @@ class ProfileControllerTest(shared.ControllerTest, base.SenlinTestCase):
         self.assertIn('filters', engine_args)
 
         filters = engine_args['filters']
-        self.assertEqual(3, len(filters))
+        self.assertEqual(2, len(filters))
         self.assertIn('name', filters)
         self.assertIn('type', filters)
-        self.assertIn('metadata', filters)
 
     def test_profile_index_whitelist_filter_bad_params(self, mock_enforce):
         self._mock_enforce_setup(mock_enforce, 'index', True)
@@ -435,7 +433,7 @@ class ProfileControllerTest(shared.ControllerTest, base.SenlinTestCase):
         result = self.controller.update(req, profile_id=pid, body=body)
 
         args = copy.deepcopy(body['profile'])
-        args['profile_id'] = pid
+        args['identity'] = pid
         mock_call.assert_called_with(req.context, ('profile_update', args))
 
         expected = {'profile': engine_resp}
@@ -564,8 +562,8 @@ class ProfileControllerTest(shared.ControllerTest, base.SenlinTestCase):
         pid = 'aaaa-bbbb-cccc'
         req = self._delete('/profiles/%(profile_id)s' % {'profile_id': pid})
 
-        error = senlin_exc.ResourceInUse(resource_type='profile',
-                                         resource_id=pid)
+        error = senlin_exc.ResourceInUse(type='profile', id=pid,
+                                         reason='still in use')
         mock_call = self.patchobject(rpc_client.EngineClient, 'call')
         mock_call.side_effect = shared.to_remote_error(error)
 

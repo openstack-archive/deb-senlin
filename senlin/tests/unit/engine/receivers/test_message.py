@@ -16,16 +16,25 @@ import socket
 
 from keystoneauth1 import loading as ks_loading
 from oslo_config import cfg
+from oslo_utils import uuidutils
 
 from senlin.common import exception
+from senlin.common.i18n import _
 from senlin.drivers import base as driver_base
+from senlin.engine.actions import base as action_mod
+from senlin.engine import dispatcher
 from senlin.engine.receivers import message as mmod
+from senlin.objects import cluster as co
 from senlin.tests.unit.common import base
+from senlin.tests.unit.common import utils
 
 UUID = 'aa5f86b8-e52b-4f2b-828a-4c14c770938d'
 
 
 class TestMessage(base.SenlinTestCase):
+    def setUp(self):
+        super(TestMessage, self).setUp()
+        self.context = utils.dummy_context()
 
     @mock.patch.object(driver_base, 'SenlinDriver')
     def test_keystone_client(self, mock_senlindriver):
@@ -78,8 +87,8 @@ class TestMessage(base.SenlinTestCase):
         sd.message.assert_called_once_with(params)
 
     def test__generate_subscriber_url_host_provided(self):
-        cfg.CONF.set_override('host', 'web.com', 'webhook')
-        cfg.CONF.set_override('port', '1234', 'webhook')
+        cfg.CONF.set_override('host', 'web.com', 'receiver', enforce_type=True)
+        cfg.CONF.set_override('port', '1234', 'receiver', enforce_type=True)
         message = mmod.Message('message', None, None, id=UUID)
         res = message._generate_subscriber_url()
 
@@ -141,7 +150,7 @@ class TestMessage(base.SenlinTestCase):
         mock_create_queue.return_value = 'test-queue'
 
         message = mmod.Message('message', None, None)
-        res = message.initialize_channel()
+        res = message.initialize_channel(self.context)
 
         expected_channel = {'queue_name': 'test-queue',
                             'subscription': 'test-subscription-id'}
@@ -151,14 +160,15 @@ class TestMessage(base.SenlinTestCase):
 
     @mock.patch.object(mmod.Message, 'zaqar')
     def test__create_queue(self, mock_zaqar):
+        cfg.CONF.set_override('max_message_size', 8192, 'receiver',
+                              enforce_type=True)
         mock_zc = mock.Mock()
         mock_zaqar.return_value = mock_zc
         message = mmod.Message('message', None, None, id=UUID)
         queue_name = 'senlin-receiver-%s' % message.id
         kwargs = {
-            '_max_messages_post_size': 262144,
-            '_default_message_ttl': 3600,
-            'description': 'Queue for Senlin receiver.',
+            '_max_messages_post_size': 8192,
+            'description': 'Senlin receiver %s.' % message.id,
             'name': queue_name
         }
         mock_zc.queue_create.return_value = queue_name
@@ -169,14 +179,15 @@ class TestMessage(base.SenlinTestCase):
 
     @mock.patch.object(mmod.Message, 'zaqar')
     def test__create_queue_fail(self, mock_zaqar):
+        cfg.CONF.set_override('max_message_size', 8192, 'receiver',
+                              enforce_type=True)
         mock_zc = mock.Mock()
         mock_zaqar.return_value = mock_zc
         message = mmod.Message('message', None, None, id=UUID)
         queue_name = 'senlin-receiver-%s' % message.id
         kwargs = {
-            '_max_messages_post_size': 262144,
-            '_default_message_ttl': 3600,
-            'description': 'Queue for Senlin receiver.',
+            '_max_messages_post_size': 8192,
+            'description': 'Senlin receiver %s.' % message.id,
             'name': queue_name
         }
         mock_zc.queue_create.side_effect = exception.InternalError()
@@ -196,11 +207,9 @@ class TestMessage(base.SenlinTestCase):
         message = mmod.Message('message', None, None, id=UUID)
         queue_name = 'test-queue'
         kwargs = {
-            "ttl": 3600,
+            "ttl": 2 ** 36,
             "subscriber": subscriber,
             "options": {
-                "from": "senlin and zaqar",
-                "subject": "hello, senlin",
                 "trust_id": "123abc"
             }
         }
@@ -223,13 +232,12 @@ class TestMessage(base.SenlinTestCase):
         subscriber = 'subscriber_url'
         mock_generate_subscriber_url.return_value = subscriber
         message = mmod.Message('message', None, None, id=UUID)
+        message.id = UUID
         queue_name = 'test-queue'
         kwargs = {
-            "ttl": 3600,
+            "ttl": 2 ** 36,
             "subscriber": subscriber,
             "options": {
-                "from": "senlin and zaqar",
-                "subject": "hello, senlin",
                 "trust_id": "123abc"
             }
         }
@@ -250,7 +258,7 @@ class TestMessage(base.SenlinTestCase):
         message = mmod.Message('message', None, None, id=UUID,
                                channel=channel)
 
-        message.release_channel()
+        message.release_channel(self.context)
         mock_zc.subscription_delete.assert_called_once_with(
             'test-queue', 'test-subscription-id')
         mock_zc.queue_delete.assert_called_once_with('test-queue')
@@ -266,7 +274,7 @@ class TestMessage(base.SenlinTestCase):
         mock_zc.subscription_delete.side_effect = exception.InternalError()
 
         self.assertRaises(exception.EResourceDeletion,
-                          message.release_channel)
+                          message.release_channel, self.context)
         mock_zc.subscription_delete.assert_called_once_with(
             'test-queue', 'test-subscription-id')
 
@@ -281,7 +289,7 @@ class TestMessage(base.SenlinTestCase):
         mock_zc.queue_delete.side_effect = exception.InternalError()
 
         self.assertRaises(exception.EResourceDeletion,
-                          message.release_channel)
+                          message.release_channel, self.context)
         mock_zc.subscription_delete.assert_called_once_with(
             'test-queue', 'test-subscription-id')
         mock_zc.queue_delete.assert_called_once_with('test-queue')
@@ -301,7 +309,8 @@ class TestMessage(base.SenlinTestCase):
         mock_trust = mock.Mock()
         mock_trust.id = 'mock-trust-id'
         message = mmod.Message('message', None, None, id=UUID,
-                               user='user1', project='project1')
+                               user='user1', project='project1',
+                               params={'notifier_roles': ['test-role']})
         mock_kc.trust_get_by_trustor.return_value = mock_trust
 
         res = message._build_trust()
@@ -316,8 +325,8 @@ class TestMessage(base.SenlinTestCase):
     @mock.patch.object(ks_loading, 'load_auth_from_conf_options')
     @mock.patch.object(ks_loading, 'load_session_from_conf_options')
     @mock.patch.object(mmod.Message, 'keystone')
-    def test__build_trust_create_new(self, mock_keystone, mock_load_session,
-                                     mock_load_auth):
+    def test__build_trust_create_new_multiroles(
+            self, mock_keystone, mock_load_session, mock_load_auth):
         mock_auth = mock.Mock()
         mock_session = mock.Mock()
         mock_session.get_user_id.return_value = 'zaqar-trustee-user-id'
@@ -329,6 +338,35 @@ class TestMessage(base.SenlinTestCase):
         mock_trust.id = 'mock-trust-id'
         message = mmod.Message('message', None, None, id=UUID,
                                user='user1', project='project1')
+        message.notifier_roles = ['test_role']
+        mock_kc.trust_get_by_trustor.return_value = None
+        mock_kc.trust_create.return_value = mock_trust
+
+        res = message._build_trust()
+
+        self.assertEqual('mock-trust-id', res)
+        mock_kc.trust_get_by_trustor.assert_called_once_with(
+            'user1', 'zaqar-trustee-user-id', 'project1')
+        mock_kc.trust_create.assert_called_once_with(
+            'user1', 'zaqar-trustee-user-id', 'project1', ['test_role'])
+
+    @mock.patch.object(ks_loading, 'load_auth_from_conf_options')
+    @mock.patch.object(ks_loading, 'load_session_from_conf_options')
+    @mock.patch.object(mmod.Message, 'keystone')
+    def test__build_trust_create_new_single_admin_role(
+            self, mock_keystone, mock_load_session, mock_load_auth):
+        mock_auth = mock.Mock()
+        mock_session = mock.Mock()
+        mock_session.get_user_id.return_value = 'zaqar-trustee-user-id'
+        mock_load_session.return_value = mock_session
+        mock_load_auth.return_value = mock_auth
+        mock_kc = mock.Mock()
+        mock_keystone.return_value = mock_kc
+        mock_trust = mock.Mock()
+        mock_trust.id = 'mock-trust-id'
+        message = mmod.Message('message', None, None, id=UUID,
+                               user='user1', project='project1')
+        message.notifier_roles = ['admin']
         mock_kc.trust_get_by_trustor.return_value = None
         mock_kc.trust_create.return_value = mock_trust
 
@@ -357,6 +395,7 @@ class TestMessage(base.SenlinTestCase):
         mock_trust.id = 'mock-trust-id'
         message = mmod.Message('message', None, None, id=UUID,
                                user='user1', project='project1')
+        message.notifier_roles = ['test_role']
         mock_kc.trust_get_by_trustor.return_value = None
         mock_kc.trust_create.side_effect = exception.InternalError()
 
@@ -366,7 +405,7 @@ class TestMessage(base.SenlinTestCase):
         mock_kc.trust_get_by_trustor.assert_called_once_with(
             'user1', 'zaqar-trustee-user-id', 'project1')
         mock_kc.trust_create.assert_called_once_with(
-            'user1', 'zaqar-trustee-user-id', 'project1', ['admin'])
+            'user1', 'zaqar-trustee-user-id', 'project1', ['test_role'])
 
     @mock.patch.object(ks_loading, 'load_auth_from_conf_options')
     @mock.patch.object(ks_loading, 'load_session_from_conf_options')
@@ -392,3 +431,280 @@ class TestMessage(base.SenlinTestCase):
 
         mock_kc.trust_get_by_trustor.assert_called_once_with(
             'user1', 'zaqar-trustee-user-id', 'project1')
+
+    @mock.patch.object(co.Cluster, 'get')
+    def test_find_cluster_by_uuid(self, mock_get):
+        x_cluster = mock.Mock()
+        mock_get.return_value = x_cluster
+
+        aid = uuidutils.generate_uuid()
+        message = mmod.Message('message', None, None, id=UUID)
+        result = message._find_cluster(self.context, aid)
+
+        self.assertEqual(x_cluster, result)
+        mock_get.assert_called_once_with(self.context, aid)
+
+    @mock.patch.object(co.Cluster, 'get_by_name')
+    @mock.patch.object(co.Cluster, 'get')
+    def test_find_cluster_by_uuid_as_name(self, mock_get, mock_get_name):
+        x_cluster = mock.Mock()
+        mock_get_name.return_value = x_cluster
+        mock_get.return_value = None
+
+        aid = uuidutils.generate_uuid()
+        message = mmod.Message('message', None, None, id=UUID)
+        result = message._find_cluster(self.context, aid)
+
+        self.assertEqual(x_cluster, result)
+        mock_get.assert_called_once_with(self.context, aid)
+        mock_get_name.assert_called_once_with(self.context, aid)
+
+    @mock.patch.object(co.Cluster, 'get_by_name')
+    def test_find_cluster_by_name(self, mock_get_name):
+        x_cluster = mock.Mock()
+        mock_get_name.return_value = x_cluster
+
+        aid = 'this-is-not-uuid'
+        message = mmod.Message('message', None, None, id=UUID)
+        result = message._find_cluster(self.context, aid)
+
+        self.assertEqual(x_cluster, result)
+        mock_get_name.assert_called_once_with(self.context, aid)
+
+    @mock.patch.object(co.Cluster, 'get_by_short_id')
+    @mock.patch.object(co.Cluster, 'get_by_name')
+    def test_find_cluster_by_shortid(self, mock_get_name, mock_get_shortid):
+        x_cluster = mock.Mock()
+        mock_get_shortid.return_value = x_cluster
+        mock_get_name.return_value = None
+
+        aid = 'abcd-1234-abcd'
+        message = mmod.Message('message', None, None, id=UUID)
+        result = message._find_cluster(self.context, aid)
+
+        self.assertEqual(x_cluster, result)
+        mock_get_name.assert_called_once_with(self.context, aid)
+        mock_get_shortid.assert_called_once_with(self.context, aid)
+
+    @mock.patch.object(co.Cluster, 'get_by_name')
+    def test_find_cluster_not_found(self, mock_get_name):
+        mock_get_name.return_value = None
+
+        message = mmod.Message('message', None, None, id=UUID)
+        self.assertRaises(exception.ResourceNotFound, message._find_cluster,
+                          self.context, 'bogus')
+
+        mock_get_name.assert_called_once_with(self.context, 'bogus')
+
+    @mock.patch.object(dispatcher, 'start_action')
+    @mock.patch.object(mmod.Message, '_build_action')
+    @mock.patch.object(mmod.Message, 'zaqar')
+    def test_notify(self, mock_zaqar, mock_build_action, mock_start_action):
+        mock_zc = mock.Mock()
+        mock_zaqar.return_value = mock_zc
+        mock_claim = mock.Mock()
+        message1 = {
+            'body': {'cluster': 'c1', 'action': 'CLUSTER_SCALE_IN'},
+            'id': 'ID1'
+        }
+        message2 = {
+            'body': {'cluster': 'c2', 'action': 'CLUSTER_SCALE_OUT'},
+            'id': 'ID2'
+        }
+        mock_claim.messages = [message1, message2]
+        mock_zc.claim_create.return_value = mock_claim
+        mock_build_action.side_effect = ['action_id1', 'action_id2']
+
+        message = mmod.Message('message', None, None, id=UUID)
+        message.channel = {'queue_name': 'queue1'}
+        res = message.notify(self.context)
+        self.assertEqual(['action_id1', 'action_id2'], res)
+        mock_zc.claim_create.assert_called_once_with('queue1')
+        mock_calls = [
+            mock.call(self.context, message1),
+            mock.call(self.context, message2)
+        ]
+        mock_build_action.assert_has_calls(mock_calls)
+        mock_start_action.assert_called_once_with()
+
+    @mock.patch.object(mmod.Message, 'zaqar')
+    def test_notify_no_message(self, mock_zaqar):
+        mock_zc = mock.Mock()
+        mock_zaqar.return_value = mock_zc
+        mock_claim = mock.Mock()
+        mock_claim.messages = None
+        mock_zc.claim_create.return_value = mock_claim
+
+        message = mmod.Message('message', None, None, id=UUID)
+        message.channel = {'queue_name': 'queue1'}
+        res = message.notify(self.context)
+        self.assertEqual([], res)
+        mock_zc.claim_create.assert_called_once_with('queue1')
+
+    @mock.patch.object(dispatcher, 'start_action')
+    @mock.patch.object(mmod.Message, '_build_action')
+    @mock.patch.object(mmod.Message, 'zaqar')
+    def test_notify_some_actions_building_failed(self, mock_zaqar,
+                                                 mock_build_action,
+                                                 mock_start_action):
+        mock_zc = mock.Mock()
+        mock_zaqar.return_value = mock_zc
+        mock_claim = mock.Mock()
+        message1 = {
+            'body': {'cluster': 'c1', 'action': 'CLUSTER_SCALE_IN'},
+            'id': 'ID1'
+        }
+        message2 = {
+            'body': {'cluster': 'foo', 'action': 'CLUSTER_SCALE_OUT'},
+            'id': 'ID2'
+        }
+        mock_claim.messages = [message1, message2]
+        mock_zc.claim_create.return_value = mock_claim
+        mock_build_action.side_effect = [exception.InternalError(),
+                                         'action_id1']
+
+        message = mmod.Message('message', None, None, id=UUID)
+        message.channel = {'queue_name': 'queue1'}
+        res = message.notify(self.context)
+        self.assertEqual(['action_id1'], res)
+        mock_zc.claim_create.assert_called_once_with('queue1')
+        mock_calls = [
+            mock.call(self.context, message1),
+            mock.call(self.context, message2)
+        ]
+        mock_build_action.assert_has_calls(mock_calls)
+        mock_start_action.assert_called_once_with()
+
+    @mock.patch.object(mmod.Message, 'zaqar')
+    def test_notify_claiming_message_failed(self, mock_zaqar):
+        mock_zc = mock.Mock()
+        mock_zaqar.return_value = mock_zc
+        mock_zc.claim_create.side_effect = exception.InternalError()
+
+        message = mmod.Message('message', None, None, id=UUID)
+        message.channel = {'queue_name': 'queue1'}
+        res = message.notify(self.context)
+        self.assertIsNone(res)
+        mock_zc.claim_create.assert_called_once_with('queue1')
+
+    @mock.patch.object(action_mod.Action, 'create')
+    @mock.patch.object(mmod.Message, '_find_cluster')
+    def test_build_action(self, mock_find_cluster, mock_action_create):
+        fake_cluster = mock.Mock()
+        fake_cluster.user = self.context.user
+        fake_cluster.id = 'cid1'
+        mock_find_cluster.return_value = fake_cluster
+        mock_action_create.return_value = 'action_id1'
+        msg = {
+            'body': {'cluster': 'c1', 'action': 'CLUSTER_SCALE_IN'},
+            'id': 'ID123456'
+        }
+        message = mmod.Message('message', None, None, id=UUID)
+        message.id = 'ID654321'
+        expected_kwargs = {
+            'name': 'receiver_ID654321_ID123456',
+            'cause': action_mod.CAUSE_RPC,
+            'status': action_mod.Action.READY,
+            'inputs': {}
+        }
+
+        res = message._build_action(self.context, msg)
+        self.assertEqual('action_id1', res)
+        mock_find_cluster.assert_called_once_with(self.context, 'c1')
+        mock_action_create.assert_called_once_with(self.context, 'cid1',
+                                                   'CLUSTER_SCALE_IN',
+                                                   **expected_kwargs)
+
+    def test_build_action_message_body_empty(self):
+        msg = {
+            'body': {},
+            'id': 'ID123456'
+        }
+        message = mmod.Message('message', None, None, id=UUID)
+        ex = self.assertRaises(exception.InternalError, message._build_action,
+                               self.context, msg)
+        ex_msg = _('Message body is empty.')
+        self.assertEqual(ex_msg, ex.message)
+
+    def test_build_action_no_cluster_in_message_body(self):
+        msg = {
+            'body': {'action': 'CLUSTER_SCALE_IN'},
+            'id': 'ID123456'
+        }
+        message = mmod.Message('message', None, None, id=UUID)
+        ex = self.assertRaises(exception.InternalError, message._build_action,
+                               self.context, msg)
+        ex_msg = _('Both cluster identity and action must be specified.')
+        self.assertEqual(ex_msg, ex.message)
+
+    def test_build_action_no_action_in_message_body(self):
+        msg = {
+            'body': {'cluster': 'c1'},
+            'id': 'ID123456'
+        }
+        message = mmod.Message('message', None, None, id=UUID)
+        ex = self.assertRaises(exception.InternalError, message._build_action,
+                               self.context, msg)
+        ex_msg = _('Both cluster identity and action must be specified.')
+        self.assertEqual(ex_msg, ex.message)
+
+    @mock.patch.object(mmod.Message, '_find_cluster')
+    def test_build_action_cluster_notfound(self, mock_find_cluster):
+        mock_find_cluster.side_effect = exception.ResourceNotFound(
+            type='cluster', id='c1')
+        msg = {
+            'body': {'cluster': 'c1', 'action': 'CLUSTER_SCALE_IN'},
+            'id': 'ID123456'
+        }
+        message = mmod.Message('message', None, None, id=UUID)
+        ex = self.assertRaises(exception.InternalError, message._build_action,
+                               self.context, msg)
+        ex_msg = _('Cluster (c1) cannot be found.')
+        self.assertEqual(ex_msg, ex.message)
+
+    @mock.patch.object(mmod.Message, '_find_cluster')
+    def test_build_action_permission_denied(self, mock_find_cluster):
+        fake_cluster = mock.Mock()
+        fake_cluster.user = 'different_user_from_requester'
+        mock_find_cluster.return_value = fake_cluster
+        msg = {
+            'body': {'cluster': 'c1', 'action': 'CLUSTER_SCALE_IN'},
+            'id': 'ID123456'
+        }
+        message = mmod.Message('message', None, None, id=UUID)
+        ex = self.assertRaises(exception.InternalError, message._build_action,
+                               self.context, msg)
+        ex_msg = _('%(user)s is not allowed to trigger actions on '
+                   'cluster %(cid)s.') % {'user': self.context.user,
+                                          'cid': 'c1'}
+        self.assertEqual(ex_msg, ex.message)
+
+    @mock.patch.object(mmod.Message, '_find_cluster')
+    def test_build_action_invalid_action_name(self, mock_find_cluster):
+        fake_cluster = mock.Mock()
+        fake_cluster.user = self.context.user
+        mock_find_cluster.return_value = fake_cluster
+        msg = {
+            'body': {'cluster': 'c1', 'action': 'foo'},
+            'id': 'ID123456'
+        }
+        message = mmod.Message('message', None, None, id=UUID)
+        ex = self.assertRaises(exception.InternalError, message._build_action,
+                               self.context, msg)
+        ex_msg = _("Illegal action 'foo' specified.")
+        self.assertEqual(ex_msg, ex.message)
+
+    @mock.patch.object(mmod.Message, '_find_cluster')
+    def test_build_action_not_cluster_action(self, mock_find_cluster):
+        fake_cluster = mock.Mock()
+        fake_cluster.user = self.context.user
+        mock_find_cluster.return_value = fake_cluster
+        msg = {
+            'body': {'cluster': 'c1', 'action': 'NODE_CREATE'},
+            'id': 'ID123456'
+        }
+        message = mmod.Message('message', None, None, id=UUID)
+        ex = self.assertRaises(exception.InternalError, message._build_action,
+                               self.context, msg)
+        ex_msg = _("Action 'NODE_CREATE' is not applicable to clusters.")
+        self.assertEqual(ex_msg, ex.message)

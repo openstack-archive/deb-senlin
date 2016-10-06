@@ -21,6 +21,7 @@ from senlin.common import exception as exc
 from senlin.common import scaleutils
 from senlin.objects import cluster as co
 from senlin.objects import cluster_policy as cpo
+from senlin.objects import node as no
 from senlin.policies import affinity_policy as ap
 from senlin.policies import base as pb
 from senlin.tests.unit.common import base
@@ -118,7 +119,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
                             rt={'profile': x_profile})
         x_group = mock.Mock(id='GROUP_ID', policies=[u'anti-affinity'])
         x_nova = mock.Mock()
-        x_nova.find_server_group.return_value = x_group
+        x_nova.server_group_find.return_value = x_group
 
         policy = ap.AffinityPolicy('test-policy', self.spec)
         mock_nova = self.patchobject(policy, 'nova', return_value=x_nova)
@@ -134,7 +135,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
         self.assertTrue(res)
 
         mock_nova.assert_called_once_with('UU', 'PP')
-        x_nova.find_server_group.assert_called_once_with('KONGFOO', True)
+        x_nova.server_group_find.assert_called_once_with('KONGFOO', True)
         mock_build.assert_called_once_with({
             'servergroup_id': 'GROUP_ID',
             'inherited_group': True
@@ -149,7 +150,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
                             rt={'profile': x_profile})
         x_group = mock.Mock(id='GROUP_ID', policies=['anti-affinity'])
         x_nova = mock.Mock()
-        x_nova.find_server_group.return_value = x_group
+        x_nova.server_group_find.return_value = x_group
 
         policy = ap.AffinityPolicy('test-policy', self.spec)
         mock_nova = self.patchobject(policy, 'nova', return_value=x_nova)
@@ -165,7 +166,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
         self.assertEqual(x_data, data)
 
         mock_nova.assert_called_once_with('UU', 'PP')
-        x_nova.find_server_group.assert_called_once_with('KONGFU', True)
+        x_nova.server_group_find.assert_called_once_with('KONGFU', True)
         mock_build.assert_called_once_with({
             'servergroup_id': 'GROUP_ID',
             'inherited_group': True
@@ -180,8 +181,8 @@ class TestAffinityPolicy(base.SenlinTestCase):
                             rt={'profile': x_profile})
         x_group = mock.Mock(id='GROUP_ID')
         x_nova = mock.Mock()
-        x_nova.find_server_group.return_value = None
-        x_nova.create_server_group.return_value = x_group
+        x_nova.server_group_find.return_value = None
+        x_nova.server_group_create.return_value = x_group
 
         policy = ap.AffinityPolicy('test-policy', self.spec)
         mock_nova = self.patchobject(policy, 'nova', return_value=x_nova)
@@ -197,8 +198,8 @@ class TestAffinityPolicy(base.SenlinTestCase):
         self.assertEqual(x_data, data)
 
         mock_nova.assert_called_once_with('USER', 'PROJ')
-        x_nova.find_server_group.assert_called_once_with('KONGFU', True)
-        x_nova.create_server_group.assert_called_once_with(
+        x_nova.server_group_find.assert_called_once_with('KONGFU', True)
+        x_nova.server_group_create.assert_called_once_with(
             name='KONGFU',
             policies=[policy.ANTI_AFFINITY])
         mock_build.assert_called_once_with({
@@ -214,7 +215,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
                             rt={'profile': x_profile})
         x_group = mock.Mock(id='GROUP_ID')
         x_nova = mock.Mock()
-        x_nova.create_server_group.return_value = x_group
+        x_nova.server_group_create.return_value = x_group
 
         policy = ap.AffinityPolicy('test-policy', self.spec)
         mock_nova = self.patchobject(policy, 'nova', return_value=x_nova)
@@ -230,7 +231,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
         self.assertEqual(x_data, data)
 
         mock_nova.assert_called_once_with('USER', 'PROJ')
-        x_nova.create_server_group.assert_called_once_with(
+        x_nova.server_group_create.assert_called_once_with(
             name=mock.ANY,
             policies=[policy.ANTI_AFFINITY])
         mock_build.assert_called_once_with({
@@ -259,7 +260,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
                             rt={'profile': x_profile})
         x_nova = mock.Mock()
         err = exc.InternalError(code=500, message='Boom')
-        x_nova.find_server_group.side_effect = err
+        x_nova.server_group_find.side_effect = err
 
         policy = ap.AffinityPolicy('test-policy', self.spec)
         mock_nova = self.patchobject(policy, 'nova', return_value=x_nova)
@@ -272,7 +273,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
         self.assertEqual("Failed in retrieving servergroup 'KONGFU'.", data)
 
         mock_nova.assert_called_once_with('USER', 'PROJ')
-        x_nova.find_server_group.assert_called_once_with('KONGFU', True)
+        x_nova.server_group_find.assert_called_once_with('KONGFU', True)
 
     def test_attach_policies_not_match(self):
         self.spec['properties']['servergroup']['name'] = 'KONGFU'
@@ -283,7 +284,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
                             rt={'profile': x_profile})
         x_group = mock.Mock(id='GROUP_ID', policies=['affinity'])
         x_nova = mock.Mock()
-        x_nova.find_server_group.return_value = x_group
+        x_nova.server_group_find.return_value = x_group
 
         policy = ap.AffinityPolicy('test-policy', self.spec)
         mock_nova = self.patchobject(policy, 'nova', return_value=x_nova)
@@ -298,7 +299,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
                          data)
 
         mock_nova.assert_called_once_with('U1', 'P1')
-        x_nova.find_server_group.assert_called_once_with('KONGFU', True)
+        x_nova.server_group_find.assert_called_once_with('KONGFU', True)
 
     def test_attach_failed_creating_server_group(self):
         self.spec['properties']['servergroup']['name'] = 'KONGFU'
@@ -308,8 +309,8 @@ class TestAffinityPolicy(base.SenlinTestCase):
         cluster = mock.Mock(id='CLUSTER_ID', user='U1', project='P1',
                             rt={'profile': x_profile})
         x_nova = mock.Mock()
-        x_nova.find_server_group.return_value = None
-        x_nova.create_server_group.side_effect = Exception()
+        x_nova.server_group_find.return_value = None
+        x_nova.server_group_create.side_effect = Exception()
 
         policy = ap.AffinityPolicy('test-policy', self.spec)
         mock_nova = self.patchobject(policy, 'nova', return_value=x_nova)
@@ -322,8 +323,8 @@ class TestAffinityPolicy(base.SenlinTestCase):
         self.assertFalse(res)
 
         mock_nova.assert_called_once_with('U1', 'P1')
-        x_nova.find_server_group.assert_called_once_with('KONGFU', True)
-        x_nova.create_server_group.assert_called_once_with(
+        x_nova.server_group_find.assert_called_once_with('KONGFU', True)
+        x_nova.server_group_create.assert_called_once_with(
             name=mock.ANY,
             policies=[policy.ANTI_AFFINITY])
 
@@ -372,7 +373,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
         mock_extract = self.patchobject(policy, '_extract_policy_data',
                                         return_value=policy_data)
         x_nova = mock.Mock()
-        x_nova.delete_server_group.return_value = None
+        x_nova.server_group_delete.return_value = None
         mock_nova = self.patchobject(policy, 'nova', return_value=x_nova)
 
         # do it
@@ -386,7 +387,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
         mock_cp.assert_called_once_with(x_ctx, 'CLUSTER_ID', 'POLICY_ID')
         mock_extract.assert_called_once_with(x_binding.data)
         mock_nova.assert_called_once_with('USER', 'PROJECT')
-        x_nova.delete_server_group.assert_called_once_with('SERVERGROUP_ID')
+        x_nova.server_group_delete.assert_called_once_with('SERVERGROUP_ID')
 
     @mock.patch.object(cpo.ClusterPolicy, 'get')
     @mock.patch.object(context, 'get_admin_context')
@@ -473,7 +474,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
         mock_extract = self.patchobject(policy, '_extract_policy_data',
                                         return_value=policy_data)
         x_nova = mock.Mock()
-        x_nova.delete_server_group.side_effect = Exception()
+        x_nova.server_group_delete.side_effect = Exception()
         mock_nova = self.patchobject(policy, 'nova', return_value=x_nova)
 
         # do it
@@ -487,7 +488,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
         mock_cp.assert_called_once_with(x_ctx, 'CLUSTER_ID', 'POLICY_ID')
         mock_extract.assert_called_once_with({'foo': 'bar'})
         mock_nova.assert_called_once_with('USER', 'PROJ')
-        x_nova.delete_server_group.assert_called_once_with('SERVERGROUP_ID')
+        x_nova.server_group_delete.assert_called_once_with('SERVERGROUP_ID')
 
     @mock.patch.object(cpo.ClusterPolicy, 'get')
     def test_pre_op(self, mock_cp):
@@ -609,10 +610,11 @@ class TestAffinityPolicy(base.SenlinTestCase):
             x_action.data)
         x_action.store.assert_called_once_with(x_action.context)
 
+    @mock.patch.object(no.Node, 'count_by_cluster')
     @mock.patch.object(co.Cluster, 'get')
     @mock.patch.object(cpo.ClusterPolicy, 'get')
-    def test_pre_op_use_resize_params(self, mock_cp, mock_cluster):
-        def fake_parse_func(action, cluster):
+    def test_pre_op_use_resize_params(self, mock_cp, mock_cluster, mock_count):
+        def fake_parse_func(action, cluster, current):
             action.data = {
                 'creation': {
                     'count': 2
@@ -628,6 +630,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
         }
         x_cluster = mock.Mock()
         mock_cluster.return_value = x_cluster
+        mock_count.return_value = 10
         mock_parse = self.patchobject(scaleutils, 'parse_resize_params',
                                       side_effect=fake_parse_func)
 
@@ -646,7 +649,8 @@ class TestAffinityPolicy(base.SenlinTestCase):
         # do it
         policy.pre_op('CLUSTER_ID', x_action)
 
-        mock_parse.assert_called_once_with(x_action, x_cluster)
+        mock_count.assert_called_once_with(x_action.context, 'CLUSTER_ID')
+        mock_parse.assert_called_once_with(x_action, x_cluster, 10)
         mock_cluster.assert_called_once_with(x_action.context, 'CLUSTER_ID')
         mock_cp.assert_called_once_with(x_action.context, 'CLUSTER_ID',
                                         'POLICY_ID')
@@ -671,10 +675,11 @@ class TestAffinityPolicy(base.SenlinTestCase):
             x_action.data)
         x_action.store.assert_called_once_with(x_action.context)
 
+    @mock.patch.object(no.Node, 'count_by_cluster')
     @mock.patch.object(co.Cluster, 'get')
     @mock.patch.object(cpo.ClusterPolicy, 'get')
-    def test_pre_op_resize_shrinking(self, mock_cp, mock_cluster):
-        def fake_parse_func(action, cluster):
+    def test_pre_op_resize_shrinking(self, mock_cp, mock_cluster, mock_count):
+        def fake_parse_func(action, cluster, current):
             action.data = {
                 'deletion': {
                     'count': 2
@@ -690,6 +695,7 @@ class TestAffinityPolicy(base.SenlinTestCase):
         }
         x_cluster = mock.Mock()
         mock_cluster.return_value = x_cluster
+        mock_count.return_value = 5
         mock_parse = self.patchobject(scaleutils, 'parse_resize_params',
                                       side_effect=fake_parse_func)
         policy = ap.AffinityPolicy('test-policy', self.spec)
@@ -699,7 +705,8 @@ class TestAffinityPolicy(base.SenlinTestCase):
         # do it
         policy.pre_op('CLUSTER_ID', x_action)
 
-        mock_parse.assert_called_once_with(x_action, x_cluster)
+        mock_count.assert_called_once_with(x_action.context, 'CLUSTER_ID')
+        mock_parse.assert_called_once_with(x_action, x_cluster, 5)
         mock_cluster.assert_called_once_with(x_action.context, 'CLUSTER_ID')
         self.assertEqual(0, mock_cp.call_count)
         self.assertEqual(0, mock_extract.call_count)

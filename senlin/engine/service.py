@@ -93,8 +93,10 @@ class EngineService(service.Service):
         self.TG = None
         self.target = None
         self._rpc_server = None
+        self.cleanup_timer = None
+        self.cleanup_count = 0
 
-        # Intialize the global environment
+        # Initialize the global environment
         environment.initialize()
 
     def init_tgm(self):
@@ -118,7 +120,6 @@ class EngineService(service.Service):
         self.target = target
         self._rpc_server = rpc_messaging.get_rpc_server(target, self)
         self._rpc_server.start()
-        self.service_manage_cleanup()
 
         # create a health manager RPC service for this engine.
         self.health_mgr = health_manager.HealthManager(
@@ -126,6 +127,10 @@ class EngineService(service.Service):
 
         LOG.info(_LI("Starting health manager for engine %s"), self.engine_id)
         self.health_mgr.start()
+
+        # we may want to make the clean-up attempts configurable.
+        self.cleanup_timer = self.TG.add_timer(2 * cfg.CONF.periodic_interval,
+                                               self.service_manage_cleanup)
 
         self.TG.add_timer(cfg.CONF.periodic_interval,
                           self.service_manage_report)
@@ -154,6 +159,11 @@ class EngineService(service.Service):
         self.health_mgr.stop()
 
         self.TG.stop()
+
+        ctx = senlin_context.get_admin_context()
+        service_obj.Service.delete(ctx, self.engine_id)
+        LOG.info(_LI('Engine %s is deleted'), self.engine_id)
+
         super(EngineService, self).stop()
 
     def service_manage_report(self):
@@ -168,7 +178,7 @@ class EngineService(service.Service):
             LOG.error(_LE('Service %(service_id)s update failed: %(error)s'),
                       {'service_id': self.engine_id, 'error': ex})
 
-    def service_manage_cleanup(self):
+    def _service_manage_cleanup(self):
         ctx = senlin_context.get_admin_context()
         time_window = (2 * cfg.CONF.periodic_interval)
         svcs = service_obj.Service.get_all(ctx)
@@ -176,10 +186,16 @@ class EngineService(service.Service):
             if svc['id'] == self.engine_id:
                 continue
             if timeutils.is_older_than(svc['updated_at'], time_window):
-                # < time_line:
-                # hasn't been updated, assuming it's died.
                 LOG.info(_LI('Service %s was aborted'), svc['id'])
                 service_obj.Service.delete(ctx, svc['id'])
+
+    def service_manage_cleanup(self):
+        self._service_manage_cleanup()
+        self.cleanup_count += 1
+        LOG.info(_LI('Service chean-up attempt count: %s'), self.cleanup_count)
+        if self.cleanup_count >= 2:
+            self.cleanup_timer.stop()
+            LOG.info(_LI("Finished cleaning up dead services."))
 
     @request_context
     def credential_create(self, context, cred, attrs=None):
@@ -428,11 +444,11 @@ class EngineService(service.Service):
         return profile.to_dict()
 
     @request_context
-    def profile_update(self, context, profile_id, name=None, metadata=None):
+    def profile_update(self, context, identity, name=None, metadata=None):
         """Update the properties of a given profile.
 
         :param context: An instance of the request context.
-        :param profile_id: The UUID, name or short-id of a profile.
+        :param identity: The UUID, name or short-id of a profile.
         :param name: The new name for the profile.
         :param metadata: A dictionary of key-value pairs to be associated with
                          the profile.
@@ -440,9 +456,9 @@ class EngineService(service.Service):
                   or an exception `ResourceNotFound` if no matching profile is
                   found.
         """
-        LOG.info(_LI("Updating profile '%(id)s.'"), {'id': profile_id})
+        LOG.info(_LI("Updating profile '%(id)s.'"), {'id': identity})
 
-        db_profile = self.profile_find(context, profile_id)
+        db_profile = self.profile_find(context, identity)
         profile = profile_base.Profile.load(context, profile=db_profile)
         changed = False
         if name is not None and name != profile.name:
@@ -457,7 +473,7 @@ class EngineService(service.Service):
             msg = _("No property needs an update.")
             raise exception.BadRequest(msg=msg)
 
-        LOG.info(_LI("Profile '%(id)s' is updated."), {'id': profile_id})
+        LOG.info(_LI("Profile '%(id)s' is updated."), {'id': identity})
         return profile.to_dict()
 
     @request_context
@@ -474,9 +490,9 @@ class EngineService(service.Service):
         try:
             profile_base.Profile.delete(context, db_profile.id)
         except exception.EResourceBusy:
-            LOG.error(_LI("The profile '%s' cannot be deleted."), identity)
-            raise exception.ResourceInUse(resource_type='profile',
-                                          resource_id=db_profile.id)
+            reason = _("still referenced by some clusters and/or nodes.")
+            raise exception.ResourceInUse(type='profile', id=identity,
+                                          reason=reason)
 
         LOG.info(_LI("Profile '%(id)s' is deleted."), {'id': identity})
 
@@ -679,9 +695,9 @@ class EngineService(service.Service):
         try:
             policy_base.Policy.delete(context, db_policy.id)
         except exception.EResourceBusy:
-            LOG.error(_LI("Policy '%s' cannot be deleted."), identity)
-            raise exception.ResourceInUse(resource_type='policy',
-                                          resource_id=db_policy.id)
+            reason = _("still attached to some clusters")
+            raise exception.ResourceInUse(type='policy', id=identity,
+                                          reason=reason)
 
         LOG.info(_LI("Policy '%s' is deleted."), identity)
 
@@ -956,8 +972,9 @@ class EngineService(service.Service):
 
         containers = cluster.dependents.get('containers', None)
         if containers is not None and len(containers) > 0:
-            raise exception.ResourceInUse(resource_type='host_cluster',
-                                          resource_id=cluster.id)
+            reason = _("still depended by other clusters and/or nodes")
+            raise exception.ResourceInUse(type='cluster', id=identity,
+                                          reason=reason)
 
         policies = cp_obj.ClusterPolicy.get_all(context, cluster.id)
         if len(policies) > 0:
@@ -965,7 +982,8 @@ class EngineService(service.Service):
                     'policies detached.') % {'id': identity}
             LOG.error(msg)
             reason = _("there is still policy(s) attached to it.")
-            raise exception.ClusterBusy(cluster=identity, reason=reason)
+            raise exception.ResourceInUse(type='cluster', id=identity,
+                                          reason=reason)
 
         receivers = receiver_obj.Receiver.get_all(
             context, filters={'cluster_id': cluster.id})
@@ -974,7 +992,8 @@ class EngineService(service.Service):
                     'receivers deleted.') % {'id': identity}
             LOG.error(msg)
             reason = _("there is still receiver(s) associated with it.")
-            raise exception.ClusterBusy(cluster=identity, reason=reason)
+            raise exception.ResourceInUse(type='cluster', id=identity,
+                                          reason=reason)
 
         params = {
             'name': 'cluster_delete_%s' % cluster.id[:8],
@@ -1135,6 +1154,103 @@ class EngineService(service.Service):
 
         return {'action': action_id}
 
+    def _validate_replace_node(self, context, db_cluster, nodes):
+        db_cluster_profile = self.profile_find(context,
+                                               db_cluster.profile_id)
+        cluster_profile_type = db_cluster_profile.type
+
+        found = {}
+        not_member = []
+        owned_nodes = []
+        not_found_new = []
+        not_found_old = []
+        bad_nodes = []
+        not_match_nodes = []
+        for (old_node, new_node) in nodes.items():
+            try:
+                db_old_node = self.node_find(context, old_node)
+            except exception.ResourceNotFound:
+                not_found_old.append(old_node)
+                continue
+            try:
+                db_new_node = self.node_find(context, new_node)
+            except exception.ResourceNotFound:
+                not_found_new.append(new_node)
+                continue
+
+            if db_old_node.cluster_id != db_cluster.id:
+                not_member.append(old_node)
+            elif db_new_node.cluster_id:
+                owned_nodes.append(new_node)
+            elif db_new_node.status != node_mod.Node.ACTIVE:
+                bad_nodes.append(new_node)
+            else:
+                # check the profile type
+                db_new_profile = self.profile_find(context,
+                                                   db_new_node.profile_id)
+                if cluster_profile_type != db_new_profile.type:
+                    not_match_nodes.append(new_node)
+                else:
+                    found[db_old_node.id] = db_new_node.id
+
+        msg = None
+        if len(not_member) > 0:
+            msg = _("The specified nodes %(n)s to be replaced are not "
+                    "members of the cluster %(c)s.") % {'n': not_member,
+                                                        'c': db_cluster.id}
+        elif len(owned_nodes) > 0:
+            msg = _("Nodes %s already member of a cluster."
+                    ) % owned_nodes
+            LOG.error(msg)
+            raise exception.NodeNotOrphan(message=msg)
+        elif len(bad_nodes) > 0:
+            msg = _("Nodes are not ACTIVE: %s.") % bad_nodes
+        elif len(not_match_nodes) > 0:
+            msg = _("Profile type of nodes %s do not match that of the "
+                    "cluster.") % not_match_nodes
+            LOG.error(msg)
+            raise exception.ProfileTypeNotMatch(message=msg)
+        elif len(not_found_old) > 0:
+            msg = _("Original nodes not found: %s.") % not_found_old
+        elif len(not_found_new) > 0:
+            msg = _("Replacement nodes not found: %s.") % not_found_new
+
+        if msg is not None:
+            LOG.error(msg)
+            raise exception.BadRequest(msg=msg)
+
+        return found
+
+    @request_context
+    def cluster_replace_nodes(self, context, identity, nodes=None):
+        """Replace the nodes in cluster with specified nodes
+
+        :param context: An instance of the request context.
+        :param identity: The UUID, name or short-id of the target cluster.
+        :param nodes: A dictionary contains the original nodes and the nodes
+                      used to replace. The key is the original nodes' UUID,
+                      the value is the specified node's UUID
+        :return: A dictionary containing the ID of the action triggered.
+        """
+        LOG.info(_LI("Replace nodes of the cluster '%s'."), identity)
+        db_cluster = self.cluster_find(context, identity)
+
+        nodes_dict = self._validate_replace_node(context, db_cluster,
+                                                 nodes)
+        kwargs = {
+            'name': 'cluster_replace_nodes_%s' % db_cluster.id[:8],
+            'cause': action_mod.CAUSE_RPC,
+            'status': action_mod.Action.READY,
+            'inputs': nodes_dict,
+        }
+        action_id = action_mod.Action.create(context, db_cluster.id,
+                                             consts.CLUSTER_REPLACE_NODES,
+                                             **kwargs)
+        dispatcher.start_action()
+        LOG.info(_LI("Cluster replace nodes action queued: %s."), action_id)
+
+        return {'action': action_id}
+
     @request_context
     def cluster_resize(self, context, identity, adj_type=None, number=None,
                        min_size=None, max_size=None, min_step=None,
@@ -1203,7 +1319,7 @@ class EngineService(service.Service):
             strict = utils.parse_bool_param(consts.ADJUSTMENT_STRICT, strict)
 
         db_cluster = self.cluster_find(context, identity)
-        current = db_cluster.desired_capacity
+        current = node_obj.Node.count_by_cluster(context, db_cluster.id)
         if adj_type is not None:
             desired = su.calculate_desired(current, adj_type, number, min_step)
         else:
@@ -1370,7 +1486,9 @@ class EngineService(service.Service):
         LOG.info(_LI("Checking Cluster '%(cluster)s'."),
                  {'cluster': identity})
         db_cluster = self.cluster_find(context, identity)
-
+        if not context.user or not context.project:
+            context.user = db_cluster.user
+            context.project = db_cluster.project
         params = {
             'name': 'cluster_check_%s' % db_cluster.id[:8],
             'cause': action_mod.CAUSE_RPC,
@@ -1667,8 +1785,9 @@ class EngineService(service.Service):
 
         containers = node.dependents.get('containers', None)
         if containers is not None and len(containers) > 0:
-            raise exception.ResourceInUse(resource_type='host_node',
-                                          resource_id=node.id)
+            reason = _("still depended by other clusters and/or nodes")
+            raise exception.ResourceInUse(type='node', id=identity,
+                                          reason=reason)
 
         params = {
             'name': 'node_delete_%s' % node.id[:8],
@@ -1688,7 +1807,7 @@ class EngineService(service.Service):
 
         :param context: An instance of the request context.
         :param identity: The UUID, name or short-id of the node.
-        :param params: An dictionary providing additional input parameters
+        :param params: A dictionary providing additional input parameters
                        for the checking operation.
         :return: A dictionary containing the ID of the action triggered by
                  this request.
@@ -1790,7 +1909,7 @@ class EngineService(service.Service):
         :param policy: The ID, name or short ID of the target policy.
         :param enabled: Optional parameter specifying whether the policy is
                         enabled when attached.
-        :return: A dictionary containg the ID of the action fired.
+        :return: A dictionary contains the ID of the action fired.
         """
         LOG.info(_LI("Attaching policy (%(policy)s) to cluster "
                      "(%(cluster)s)."),
@@ -1809,7 +1928,7 @@ class EngineService(service.Service):
             'status': action_mod.Action.READY,
             'inputs': {
                 'policy_id': db_policy.id,
-                'enabled': utils.parse_bool_param('enabled', enabled) or True,
+                'enabled': utils.parse_bool_param('enabled', enabled),
             }
         }
         action_id = action_mod.Action.create(context, db_cluster.id,
@@ -1829,7 +1948,7 @@ class EngineService(service.Service):
         :param context: An instance of request context.
         :param identity: The ID, name or short ID of the target cluster.
         :param policy: The ID, name or short ID of the target policy.
-        :return: A dictionary containg the ID of the action fired.
+        :return: A dictionary contains the ID of the action fired.
         """
         LOG.info(_LI("Detaching policy '%(policy)s' from cluster "
                      "'%(cluster)s'."),
@@ -1873,7 +1992,7 @@ class EngineService(service.Service):
         :param policy: The ID, name or short ID of the target policy.
         :param enabled: Optional parameter specifying whether the policy is
                         enabled after the update.
-        :return: A dictionary containg the ID of the action fired.
+        :return: A dictionary contains the ID of the action fired.
         """
         LOG.info(_LI("Updating policy '%(policy)s' on cluster '%(cluster)s.'"),
                  {'policy': policy, 'cluster': identity})
@@ -2025,8 +2144,9 @@ class EngineService(service.Service):
         try:
             action_mod.Action.delete(context, db_action.id)
         except exception.EResourceBusy:
-            raise exception.ResourceInUse(resource_type='action',
-                                          resource_id=db_action.id)
+            reason = _("still in one of WAITING, RUNNING or SUSPENDED state")
+            raise exception.ResourceInUse(type='action', id=identity,
+                                          reason=reason)
 
         LOG.info(_LI("Action '%s' is deleted."), identity)
 
@@ -2191,6 +2311,29 @@ class EngineService(service.Service):
         LOG.info(_LI("Deleting receiver %s."), identity)
         receiver_mod.Receiver.delete(context, db_receiver.id)
         LOG.info(_LI("Receiver %s is deleted."), identity)
+
+    @request_context
+    def receiver_notify(self, context, identity, params=None):
+        """Handle notification to specified receiver.
+
+        :param context: An instance of the request context.
+        :param identity: The UUID, name or short-id of a receiver.
+        :param params: Parameters received from notification.
+        """
+        db_receiver = self.receiver_find(context, identity)
+        # permission checking
+        if not context.is_admin and context.user != db_receiver.user:
+            raise exception.Forbidden()
+
+        # Receiver type check
+        if db_receiver.type != consts.RECEIVER_MESSAGE:
+            raise exception.Forbidden()
+
+        LOG.info(_LI("Received notification to receiver %s."), identity)
+        receiver = receiver_mod.Receiver.load(context,
+                                              receiver_obj=db_receiver,
+                                              project_safe=True)
+        receiver.notify(context, params)
 
     @request_context
     def webhook_trigger(self, context, identity, params=None):
