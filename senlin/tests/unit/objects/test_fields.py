@@ -13,6 +13,7 @@
 from oslo_versionedobjects import fields
 import testtools
 
+from senlin.objects import base
 from senlin.objects import fields as senlin_fields
 
 
@@ -64,6 +65,72 @@ class TestField(testtools.TestCase):
         self.assertEqual('123', self.field.stringify(123))
 
 
+class TestObject(TestField):
+
+    def setUp(self):
+        super(TestObject, self).setUp()
+
+        @base.base.VersionedObjectRegistry.register
+        class TestableObject(base.base.VersionedObject):
+            fields = {
+                'uuid': fields.StringField(),
+            }
+
+        test_inst = TestableObject()
+        self._test_cls = TestableObject
+        self.field = fields.Field(senlin_fields.Object('TestableObject'))
+        self.coerce_good_values = [(test_inst, test_inst)]
+        self.coerce_bad_values = [1, 'foo']
+        self.to_primitive_values = [(test_inst, test_inst.obj_to_primitive())]
+        self.from_primitive_values = [(test_inst.obj_to_primitive(),
+                                       test_inst),
+                                      (test_inst, test_inst)]
+
+    def test_from_primitive(self):
+        # we ignore this test case
+        pass
+
+    def test_stringify(self):
+        # and this one is ignored as well
+        pass
+
+    def test_get_schema(self):
+        self.assertEqual(
+            {
+                'properties': {
+                    'versioned_object.changes': {
+                        'items': {'type': 'string'}, 'type': 'array'
+                    },
+                    'versioned_object.data': {
+                        'description': 'fields of TestableObject',
+                        'properties': {
+                            'uuid': {'readonly': False, 'type': ['string']}
+                        },
+                        'required': ['uuid'],
+                        'type': 'object',
+                    },
+                    'versioned_object.name': {
+                        'type': 'string',
+                    },
+                    'versioned_object.namespace': {
+                        'type': 'string',
+                    },
+                    'versioned_object.version': {
+                        'type': 'string',
+                    },
+                },
+                'readonly': False,
+                'required': [
+                    'versioned_object.namespace',
+                    'versioned_object.name',
+                    'versioned_object.version',
+                    'versioned_object.data',
+                ],
+                'type': 'object',
+            },
+            self.field.get_schema())
+
+
 class TestJson(TestField):
     def setUp(self):
         super(TestJson, self).setUp()
@@ -80,6 +147,12 @@ class TestJson(TestField):
     def test_stingify_invalid(self):
         self.assertRaises(ValueError,
                           self.field.stringify, self.coerce_bad_values[0])
+
+    def test_get_schema(self):
+        self.assertEqual(
+            {'type': ['object'], 'readonly': False},
+            self.field.get_schema()
+        )
 
 
 class TestNotificationPriority(TestField):
@@ -140,3 +213,81 @@ class TestNotificationAction(TestField):
 
     def test_stingify_invalid(self):
         self.assertRaises(ValueError, self.field.stringify, 'magic')
+
+
+class TestName(TestField):
+
+    def setUp(self):
+        super(TestName, self).setUp()
+
+        self.field = senlin_fields.NameField()
+        self.coerce_good_values = [
+            ('name1', 'name1'),          # plain string
+            ('name2.sec', 'name2.sec'),  # '.' okay
+            ('123-sec', '123-sec'),      # '-' okay
+            ('123_sec', '123_sec'),      # '_' okay
+            ('123~sec', '123~sec'),      # '~' okay
+            ('557', '557'),              # pure numeric okay
+        ]
+        self.coerce_bad_values = [
+            '',              # too short
+            's' * 300,       # too long
+            'ab/',           # '/' illegal
+            's123$',         # '$' illegal
+            '13^gadf',       # '^' illegal
+            'sad&cheer',     # '&' illegal
+            'boo**',         # '*' illegal
+            'kwsqu()',       # '(' and ')' illegal
+            'bing+bang',     # '+' illegal
+            'var=value',     # '=' illegal
+            'quicksort[1]',  # '[' and ']' illegal
+            'sdi{"gh"}',     # '{' and '}' illegal
+            'gate open',     # ' ' illegal
+            '12.64%',        # '%' illegal
+            'name#sign',     # '#' illegal
+            'back\slash',    # '\' illegal
+            ' leading',      # leading blank illegal
+            'trailing ',     # trailing blank illegal
+            '!okay',         # '!' illegal
+            '@author',       # '@' illegal
+            '`info`',        # '`' illegal
+            '"partial',      # '"' illegal
+            "'single",       # ''' illegal
+            '<max',          # '<' illegal
+            '>min',          # '>' illegal
+            'question?',     # '?' illegal
+            'first,second',  # ',' illegal
+        ]
+        self.to_primitive_values = self.coerce_good_values[0:1]
+        self.from_primitive_values = self.coerce_good_values[0:1]
+
+    def test_stringify(self):
+        self.assertEqual("'name1'", self.field.stringify('name1'))
+
+    def test_init(self):
+        sot = senlin_fields.Name(2, 200)
+
+        self.assertEqual(2, sot.min_len)
+        self.assertEqual(200, sot.max_len)
+
+    def test_get_schema(self):
+        sot = senlin_fields.Name(2, 200)
+        self.assertEqual(
+            {
+                'type': ['string'],
+                'minLength': 2,
+                'maxLength': 200
+            },
+            sot.get_schema()
+        )
+
+    def test_get_schema_default(self):
+        sot = senlin_fields.Name()
+        self.assertEqual(
+            {
+                'type': ['string'],
+                'minLength': 1,
+                'maxLength': 255
+            },
+            sot.get_schema()
+        )

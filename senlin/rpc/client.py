@@ -91,10 +91,10 @@ class EngineClient(object):
         return self.call(ctxt,
                          self.make_msg('profile_get', identity=identity))
 
-    def profile_update(self, ctxt, profile_id, name, metadata):
+    def profile_update(self, ctxt, identity, name, metadata):
         return self.call(ctxt,
                          self.make_msg('profile_update',
-                                       profile_id=profile_id,
+                                       identity=identity,
                                        name=name, metadata=metadata))
 
     def profile_delete(self, ctxt, identity, cast=True):
@@ -337,6 +337,11 @@ class EngineClient(object):
         rpc_method = self.cast if cast else self.call
         return rpc_method(ctxt, self.make_msg('receiver_delete',
                                               identity=identity))
+
+    def receiver_notify(self, ctxt, identity, params=None):
+        return self.call(ctxt,
+                         self.make_msg('receiver_notify', identity=identity,
+                                       params=params))
 
     def webhook_trigger(self, ctxt, identity, params=None):
         return self.call(ctxt,

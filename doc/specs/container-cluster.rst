@@ -32,7 +32,7 @@ OpenStack-managed resources, thus other projects which want to use container
 resources can't invoke Magnum to acquire them. Furthermore, the dependency on
 those engines will cause version management problems and makes it difficult
 to test the container engine because the engines are not implemented in Python
-lauguage. For the cloud operaters who want to use OpenStack to manage
+language. For the cloud operators who want to use OpenStack to manage
 containers, they may want OpenStack's own container service instead of learning
 how to use docker swarm etc.
 
@@ -60,11 +60,12 @@ Proposed Changes
    will be contained to created a container.
 3. Scheduling
    To decide to start containers in which virtual/baremetal machines, a
-   scheduler is needed. There are some existing container scheduler like docker
-   swarm which are widely used in production, but by thinking about Senlin's
-   feature, it is reasonable to invent a scheduler which can support container
-   auto-scaling better. For example, starting containers preferentially in
-   specified nodes whose cpu utilization is lower than a certain value.
+   scheduler is needed. There are some existing container schedulers like
+   docker swarm which are widely used in production, but by thinking about
+   Senlin's feature, it is reasonable to invent a scheduler which can support
+   container auto-scaling better. For example, starting containers
+   preferentially in specified nodes whose cpu utilization is lower than a
+   certain value.
    This is an intelligent but complicated solution for container scheduling,
    to meet the limited needs, Senlin placement policy can be used to work as
    a scheduler to take place of complicated scheduler implementation.
@@ -81,7 +82,7 @@ Proposed Changes
      started on some node of the cluster randomly.(This may be changed in
      future, to support the case of low CPU, memory usage priority.)
 4. Network
-   To allocate an IP address to erery container, a network for container is
+   To allocate an IP address to every container, a network for container is
    desired before creating a container. Kuryr brings container networking to
    neutron which can make container networking management similar to Nova
    server. Senlin will introduce Kuryr for container networking management.

@@ -19,14 +19,6 @@ before being worked on.
 High Priority
 -------------
 
-API versioning support
-^^^^^^^^^^^^^^^^^^^^^^
-
-This support can help to improve the stability and compatibility of Senlin API
-interface. We can learn some experience from what Nova has done for providing
-API version control.
-
-
 Container Clustering
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -50,6 +42,14 @@ event subscriber is needed so that Senlin can receive notifications from
 sources such as Ceilometer, Nova, or Zaqar.
 
 This is of a high priority because Senlin needs it as one of its HA solutions.
+
+
+Profile/Policy versioning support
+^^^^^^^^^^^^^^^^^^^^^^
+
+Profile/Policy schema could vary over time for properties being added or
+deprecated. Versioning support is important for keeping backward
+compatibility when profile/policy evolve.
 
 
 Scavenger Process
@@ -143,14 +143,6 @@ Using Senlin to manage Container/Docker cluster is possible. We should
 provide related support for users who have this requirement.
 
 
-Versioned Object Support
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-oslo.versionedobjects is a lib provides a generic versioned object model that
-is RPC-friendly, with inbuilt serialization, field typing, and remotable method
-calls. We can use it to promote the upgrading capatibility of Senlin service.
-
-
 
 ------------
 Low Priority
@@ -174,7 +166,7 @@ Barbican service, in addition to the current solution.
 Use VPNaaS to Build Cross-Region/Cross-Cloud
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-When buidling clusters that span more than one region or cloud, there are
+When building clusters that span more than one region or cloud, there are
 requirements to place all cluster nodes on the same VPN so that workloads can
 be distributed to the nodes as if they sit on the same network.
 
@@ -209,7 +201,7 @@ example.
 AWS Compatible API
 ^^^^^^^^^^^^^^^^^^
 
-There are requirements for Senlin to provide a AWS compatible API layer so
+There are requirements for Senlin to provide an AWS compatible API layer so
 that existing workloads can be deployed to Senlin and AWS without needing to
 change a lot of code or configurations.
 

@@ -40,14 +40,14 @@ To list nodes that are managed by the Senlin service, you will use the command
 :command:`openstack cluster node list`. For example::
 
   $ openstack cluster node list
-  +----------+--------+--------+----------+-------------+---------+...
-  | id       | name   | status | cluster  | physical_id | profile |
-  +----------+--------+--------+----------+-------------+---------+...
-  | e1b39a08 | node1  | ACTIVE |          | 89ce0d2b    | mystack |
-  | 57962220 | node-3 | ACTIVE |          | 3386e306    | mystack |
-  | b28692a5 | stack1 | ACTIVE | 2b7e9294 | fdf028a6    | qstack  |
-  | 4be10a88 | stack2 | ACTIVE | 2b7e9294 | 7c87f545    | qstack  |
-  +----------+--------+--------+----------+-------------+---------+...
+  +----------+--------+-------+--------+------------+-------------+...
+  | id       | name   | index | status | cluster_id | physical_id |
+  +----------+--------+-------+--------+------------+-------------+...
+  | e1b39a08 | node1  | -1    | ACTIVE |            | 89ce0d2b    |
+  | 57962220 | node-3 | -1    | ACTIVE |            | 3386e306    |
+  | b28692a5 | stack1 | -1    | ACTIVE | 2b7e9294   | fdf028a6    |
+  | 4be10a88 | stack2 | -1    | ACTIVE | 2b7e9294   | 7c87f545    |
+  +----------+--------+-------+--------+------------+-------------+...
 
 Note that some columns in the output table are *short ID* of objects. Senlin
 command line use short IDs to save real estate on screen so that more useful
@@ -80,12 +80,12 @@ You can specify the option :option:`--cluster <CLUSTER>` to list nodes that
 are members of a specific cluster. For example::
 
   $ openstack cluster node list --cluster c3
-  +----------+---------+--------+----------+-------------+---------+...
-  | id       | name    | status | cluster  | physical_id | profile |
-  +----------+---------+--------+----------+-------------+---------+...
-  | b28692a5 | stack1  | ACTIVE | 2b7e9294 | fdf028a6    | qstack  |
-  | 4be10a88 | stack2  | ACTIVE | 2b7e9294 | 7c87f545    | qstack  |
-  +----------+---------+--------+----------+-------------+---------+...
+  +----------+---------+-------+--------+------------+-------------+...
+  | id       | name    | index | status | cluster_id | physical_id |
+  +----------+---------+-------+--------+------------+-------------+...
+  | b28692a5 | stack1  | -1    | ACTIVE | 2b7e9294   | fdf028a6    |
+  | 4be10a88 | stack2  | -1    | ACTIVE | 2b7e9294   | 7c87f545    |
+  +----------+---------+-------+--------+------------+-------------+...
 
 Besides these two options, you can add the option :option:`--filters
 <K1=V1;K2=V2...>` to the command :command:`openstack cluster node list` to
@@ -130,6 +130,7 @@ using a profile named ``pstack``::
   | cluster_id    | None                                 |
   | created_at    | None                                 |
   | data          | {}                                   |
+  | dependents    | {}                                   |
   | details       | None                                 |
   | id            | 1984b5a0-9dd7-4dda-b1e6-e8c1f640598f |
   | index         | -1                                   |
@@ -183,7 +184,7 @@ implementation to ignore this value.
 
 The last argument you can specify when creating a new node is the option
 :option:`--metadata <K1=V1;K2=V2...>`. The value for this option is a list of
-key-value pairs seprated by a semicolon ('``;``'). These key-value pairs are
+key-value pairs separated by a semicolon ('``;``'). These key-value pairs are
 attached to the node and can be used for whatever purposes. For example::
 
   $ senlin node-create --profile pstack \
@@ -207,6 +208,7 @@ An example is shown below::
   | cluster_id    | None                                 |
   | created_at    | 2015-07-09T11:41:20                  |
   | data          | {}                                   |
+  | dependents    | {}                                   |
   | details       | {}                                   |
   | id            | 1984b5a0-9dd7-4dda-b1e6-e8c1f640598f |
   | index         | -1                                   |
@@ -282,8 +284,8 @@ command, for example::
 
 Note that in this command you can use the name, the ID or the "short ID" to
 specify the node you want to delete. If the specified criteria cannot match
-any nodes, you will get a ``NodeNotFound`` error. If more than one node
-matches the criteria, you will get a ``MultipleChoices`` error.
+any nodes, you will get a ``ResourceNotFound`` exception. If more than one
+node matches the criteria, you will get a ``MultipleChoices`` exception.
 
 
 See Also

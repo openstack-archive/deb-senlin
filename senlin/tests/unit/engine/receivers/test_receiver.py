@@ -287,7 +287,13 @@ class TestReceiver(base.SenlinTestCase):
     def test_release_channel(self):
         receiver = self._create_receiver('test-receiver', UUID1)
         receiver = rb.Receiver.load(self.context, UUID1)
-        res = receiver.release_channel()
+        res = receiver.release_channel(self.context)
+        self.assertIsNone(res)
+
+    def test_notify(self):
+        receiver = self._create_receiver('test-receiver', UUID1)
+        receiver = rb.Receiver.load(self.context, UUID1)
+        res = receiver.notify(self.context)
         self.assertIsNone(res)
 
     @mock.patch.object(ro.Receiver, 'delete')
@@ -301,14 +307,15 @@ class TestReceiver(base.SenlinTestCase):
 
         mock_load.assert_called_once_with(self.context,
                                           receiver_id='test-receiver-id')
-        mock_receiver.release_channel.assert_called_once_with()
+        mock_receiver.release_channel.assert_called_once_with(self.context)
         mock_delete.assert_called_once_with(self.context, 'test-receiver-id')
 
     @mock.patch.object(context, "get_service_context")
     @mock.patch.object(driver_base, "SenlinDriver")
     def test__get_base_url_succeeded(self, mock_senlin_driver,
                                      mock_get_service_context):
-        cfg.CONF.set_override('default_region_name', 'RegionOne')
+        cfg.CONF.set_override('default_region_name', 'RegionOne',
+                              enforce_type=True)
         fake_driver = mock.Mock()
         fake_kc = mock.Mock()
         fake_cred = mock.Mock()
@@ -331,7 +338,8 @@ class TestReceiver(base.SenlinTestCase):
     @mock.patch.object(driver_base, "SenlinDriver")
     def test__get_base_url_failed_get_endpoint_exception(
             self, mock_senlin_driver, mock_get_service_context):
-        cfg.CONF.set_override('default_region_name', 'RegionOne')
+        cfg.CONF.set_override('default_region_name', 'RegionOne',
+                              enforce_type=True)
         fake_driver = mock.Mock()
         fake_kc = mock.Mock()
         fake_cred = mock.Mock()

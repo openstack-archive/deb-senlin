@@ -1,3 +1,10 @@
+senlin (2.0.0-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Fixed (build-)depends for this release.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 06 Oct 2016 18:24:15 +0200
+
 senlin (2.0.0~rc1-2) unstable; urgency=medium
 
   [ Ondřej Nový ]

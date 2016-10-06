@@ -271,6 +271,8 @@ class DBAPIEventTest(base.SenlinTestCase):
         admin_ctx = utils.dummy_context(project='another-project',
                                         is_admin=True)
         events = db_api.event_get_all(admin_ctx, project_safe=True)
+        self.assertEqual(0, len(events))
+        events = db_api.event_get_all(admin_ctx, project_safe=False)
         self.assertEqual(3, len(events))
 
     def test_event_get_all_by_cluster(self):
@@ -482,7 +484,7 @@ class DBAPIEventTest(base.SenlinTestCase):
         node1_1 = shared.create_node(self.ctx, cluster1, self.profile)
         node_orphan = shared.create_node(self.ctx, None, self.profile)
 
-        # prune 1: cluste events
+        # prune 1: cluster events
         self.create_event(self.ctx, entity=cluster1)
         self.create_event(self.ctx, entity=cluster1)
 

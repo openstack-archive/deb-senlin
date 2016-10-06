@@ -38,12 +38,12 @@ Listing Clusters
 The following command shows the clusters managed by the Senlin service::
 
   $ openstack cluster list
-  +----------+------+--------+---------------------+
-  | id       | name | status | created_at          |
-  +----------+------+--------+---------------------+
-  | 2959122e | c1   | ACTIVE | 2015-05-05T13:27:28 |
-  | 092d0955 | c2   | ACTIVE | 2015-05-05T13:27:48 |
-  +----------+------+--------+---------------------+
+  +----------+------+--------+----------------------+------------+
+  | id       | name | status | created_at           | updated_at |
+  +----------+------+--------+----------------------+------------+
+  | 2959122e | c1   | ACTIVE | 2015-05-05T13:27:28Z | None       |
+  | 092d0955 | c2   | ACTIVE | 2015-05-05T13:27:48Z | None       |
+  +----------+------+--------+----------------------+------------+
 
 Note that the first column in the output table is a *short ID* of a cluster
 object. Senlin command line use short IDs to save real estate on screen so
@@ -51,12 +51,12 @@ that more useful information can be shown on a single line. To show the *full
 ID* in the list, you can add the :option:`--full-id` option to the command::
 
   $ openstack cluster list --full-id
-  +--------------------+------+--------+---------------------+------------+
-  | id                 | name | status | created_at          | updated_at |
-  +--------------------+------+--------+---------------------+------------+
-  | 2959122e-11c7-.... | c1   | ACTIVE | 2015-05-05T13:27:28 | None       |
-  | 092d0955-2645-.... | c2   | ACTIVE | 2015-05-05T13:27:48 | None       |
-  +--------------------+------+--------+---------------------+------------+
+  +--------------------+------+--------+--------------------- +------------+
+  | id                 | name | status | created_at           | updated_at |
+  +--------------------+------+--------+----------------------+------------+
+  | 2959122e-11c7-.... | c1   | ACTIVE | 2015-05-05T13:27:28Z | None       |
+  | 092d0955-2645-.... | c2   | ACTIVE | 2015-05-05T13:27:48Z | None       |
+  +--------------------+------+--------+----------------------+------------+
 
 
 Sorting the List
@@ -127,7 +127,7 @@ option :option:`--marker <ID>` for this purpose. For example::
   +----------+------+--------+---------------------+
 
 Only 1 cluster record is returned in this example and its UUID comes after the
-the one specified from the command line.
+one specified from the command line.
 
 
 Creating a Cluster
@@ -142,6 +142,7 @@ associated with the cluster. For example::
   +------------------+--------------------------------------+
   | created_at       | None                                 |
   | data             | {}                                   |
+  | dependents       | {}                                   |
   | desired_capacity | 0                                    |
   | domain           | None                                 |
   | id               | 60424eb3-6adf-4fc3-b9a1-4a035bf171ac |
@@ -152,12 +153,12 @@ associated with the cluster. For example::
   | nodes            |                                      |
   | profile_id       | bf38dc9f-d204-46c9-b515-79caf1e45c4d |
   | profile_name     | qstack                               |
-  | project          | 333acb15a43242f4a609a27cb097a8f2     |
+  | project_id       | 333acb15a43242f4a609a27cb097a8f2     |
   | status           | INIT                                 |
   | status_reason    | Initializing                         |
   | timeout          | None                                 |
   | updated_at       | None                                 |
-  | user             | 0b82043b57014cd58add97a2ef79dac3     |
+  | user_id          | 0b82043b57014cd58add97a2ef79dac3     |
   +------------------+--------------------------------------+
 
 From the output you can see that a new cluster object created and put to
@@ -208,7 +209,7 @@ as the "metadata" for the cluster.
 Since cluster operations may take some time to finish when being executed and
 Senlin interacts with the backend services to make it happen, there needs a
 way to verify whether an operation has timed out. When creating a cluster
-using the :program:`opentack cluster create` command line, you can use the
+using the :program:`openstack cluster create` command line, you can use the
 option :option:`--timeout <TIMEOUT>` to specify the default time out in number
 of seconds. This value would be the global setting for the cluster.
 
@@ -217,7 +218,7 @@ Showing Details of a Cluster
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 When there are clusters in the Senlin database, you can request Senlin to show
-the details about a cluster you are intested in.
+the details about a cluster you are interested in.
 
 You can use the name, the ID or the "short ID" of a cluster to name a cluster
 for show. Senlin API and engine will verify if the identifier you specified
@@ -230,25 +231,27 @@ An example is shown below::
   +------------------+--------------------------------------+
   | Property         | Value                                |
   +------------------+--------------------------------------+
-  | created_at       | 2015-07-07T03:30:53                  |
+  | created_at       | 2015-07-07T03:30:53Z                 |
   | data             | {}                                   |
   | desired_capacity | 0                                    |
-  | domain           | None                                 |
+  | domain_id        | None                                 |
   | id               | 2b7e9294-b5cd-470f-b191-b18f7e672495 |
+  | init_at          | 2015-05-07T03:30:52Z                 |
+  | location         | None                                 |
   | max_size         | -1                                   |
   | metadata         | {}                                   |
   | min_size         | 0                                    |
   | name             | c3                                   |
-  | nodes            | b28692a5-2536-4921-985b-1142d6045e1f |
+  | node_ids         | b28692a5-2536-4921-985b-1142d6045e1f |
   |                  | 4be10a88-e340-4518-a9e1-d742c53ac37f |
   | profile_id       | bf38dc9f-d204-46c9-b515-79caf1e45c4d |
   | profile_name     | qstack                               |
-  | project          | 333acb15a43242f4a609a27cb097a8f2     |
+  | project_id       | 333acb15a43242f4a609a27cb097a8f2     |
   | status           | ACTIVE                               |
   | status_reason    | Node stack2: Creation succeeded      |
   | timeout          | None                                 |
   | updated_at       | None                                 |
-  | user             | 0b82043b57014cd58add97a2ef79dac3     |
+  | user_id          | 0b82043b57014cd58add97a2ef79dac3     |
   +------------------+--------------------------------------+
 
 From the result, you can examine the list of nodes (if any) that are members
@@ -427,9 +430,9 @@ command, for example::
 
 Note that in this command you can use the name, the ID or the "short ID" to
 specify the cluster object you want to delete. If the specified criteria
-cannot match any clusters, you will get a ``ClusterNotFound`` error. If more
-than one cluster matches the criteria, you will get a ``MultipleChoices``
-error.
+cannot match any clusters, you will get a ``ResourceNotFound`` exception. If
+more than one cluster matches the criteria, you will get a ``MultipleChoices``
+exception.
 
 When there are nodes in the cluster, the Senlin engine will launch a process
 to delete all nodes from the cluster and destroy them before deleting the
@@ -444,6 +447,6 @@ links for operations related to cluster membership management and the creation
 and management of cluster-policy bindings:
 
 - :doc:`Managing Cluster Membership <membership>`
-- :doc:`Bindging Policies to Clusters <bindings>`
+- :doc:`Binding Policies to Clusters <bindings>`
 - :doc:`Examining Actions <actions>`
 - :doc:`Browsing Events <events>`

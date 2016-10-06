@@ -108,7 +108,7 @@ Data model impact
 
 What are the new data objects and/or database schema changes, if any?
 
-What database migrations will accompany this change.
+What database migrations will accompany this change?
 
 How will the initial set of new data objects be generated?
 For example if you need to consider the existing resources or modify other
@@ -206,7 +206,7 @@ Aside from the API, are there other ways a user will interact with this
 feature?
 
 * Does this change have an impact on python-senlinclient?
-  
+
 * What does the user interface there look like?
 
 Performance Impact
@@ -221,7 +221,7 @@ Examples of things to consider here include:
 * A periodic task manipulating a cluster node implies workload which will be
   multiplied by the size of a cluster.
 
-* Any code interacting with backend services (e.g. nova or heat) may introduce 
+* Any code interacting with backend services (e.g. nova or heat) may introduce
   some latency which linear to the size of a cluster.
 
 * A small change in a utility function or a commonly used decorator can have a
@@ -244,7 +244,7 @@ Other impacts on how you deploy and configure OpenStack, such as:
 * Is this a change that takes immediate effect after its merged, or is it
   something that has to be explicitly enabled?
 
-* If this change involes a new binary, how would it be deployed?
+* If this change involves a new binary, how would it be deployed?
 
 * Please state anything that those doing continuous deployment, or those
   upgrading from the previous release, need to be aware of. Also describe

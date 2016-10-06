@@ -50,7 +50,7 @@ The following command lists the events by the Senlin engine::
 
   $ openstack cluster event list
   +----------+---------------------+---------------+----------+----------------------------+-----------------------+-----------+--------------------------------+-------+
-  | id       | timestamp           | otype         | oid     | oname                       | action                | status    | status_reason                  | level |
+  | id       | timestamp           | obj_type      | obj_id   | obj_name                   | action                | status    | status_reason                  | level |
   +----------+---------------------+---------------+----------+----------------------------+-----------------------+-----------+--------------------------------+-------+
   | 1f72eb5e | 2015-12-17T15:41:48 | NODE          | 427e64f3 | node-7171861e-002          | update                | ACTIVE    | Creation succeeded             | 20    |
   | 20b8eb9a | 2015-12-17T15:41:49 | NODE          | 6da22a49 | node-7171861e-001          | update                | ACTIVE    | Creation succeeded             | 20    |
@@ -97,7 +97,7 @@ the following command filters the event list by the ``otype`` property::
 The option :option:`--filters` accepts a list of key-value pairs separated by
 semicolon (``;``), where each pair is expected to be of format ``key=val``.
 The valid keys for filtering include ``oname``, ``otype``, ``oid``,
-``cluster_id``, ``action`` or any combination of them.
+``cluster_id``, ``action``, ``level`` or any combination of them.
 
 
 Paginating the Query results

@@ -17,7 +17,7 @@ Deletion Policy V1.0
 ====================
 
 The deletion policy is designed to be enforced when a cluster's size is to be
-shrinked.
+shrunk.
 
 
 Applicable Profiles
@@ -59,7 +59,7 @@ of the action.
 S1: ``CLUSTER_DEL_NODES``
 -------------------------
 
-This is the simplest case. A action of ``CLUSTER_DEL_NODES`` carries a list of
+This is the simplest case. An action of ``CLUSTER_DEL_NODES`` carries a list of
 UUIDs for the nodes to be removed from the cluster. The deletion policy steps
 in before the actual deletion happens so to help determine the following
 details:

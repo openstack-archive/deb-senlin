@@ -15,12 +15,13 @@ spec_nova_server = {
     "type": "os.nova.server",
     "version": "1.0",
     "properties": {
-        "flavor": 1,
+        "flavor": "1",
         "name": "new-server-test",
         "image": "cirros-0.3.4-x86_64-uec",
         "networks": [
             {"network": "private"}
-        ]
+        ],
+        "key_name": "oskey"
     }
 }
 

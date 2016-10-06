@@ -27,9 +27,9 @@ CONF = cfg.CONF
 class Webhook(base.Receiver):
     """Webhook flavor of receivers."""
 
-    def initialize_channel(self):
-        host = CONF.webhook.host
-        port = CONF.webhook.port
+    def initialize_channel(self, context):
+        host = CONF.receiver.host
+        port = CONF.receiver.port
         base = None
 
         if not host:
