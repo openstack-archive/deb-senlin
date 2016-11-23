@@ -3,7 +3,7 @@ Section: net
 Priority: extra
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
 Uploaders: Thomas Goirand <zigo@debian.org>,
-Build-Depends: debhelper (>= 9),
+Build-Depends: debhelper (>= 10),
                dh-python,
                dh-systemd,
                openstack-pkg-tools (>= 53~),
@@ -145,6 +145,7 @@ Description: clustering service for OpenStack clouds - common files
 Package: senlin-api
 Architecture: all
 Depends: adduser,
+         lsb-base,
          senlin-common (= ${binary:Version}),
          ${misc:Depends},
          ${python:Depends},
@@ -166,6 +167,7 @@ Description: clustering service for OpenStack clouds - API
 Package: senlin-engine
 Architecture: all
 Depends: adduser,
+         lsb-base,
          senlin-common (= ${binary:Version}),
          ${misc:Depends},
          ${python:Depends},
