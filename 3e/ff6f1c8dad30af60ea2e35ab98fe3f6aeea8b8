@@ -1,0 +1,8 @@
+Code-Review+2: Yanyan Hu <yanyanhu@cn.ibm.com>
+Workflow+1: XueFeng Liu <liu.xuefeng1@zte.com.cn>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 01 Dec 2016 14:46:26 +0000
+Reviewed-on: https://review.openstack.org/403466
+Project: openstack/deb-senlin
+Branch: refs/heads/master
