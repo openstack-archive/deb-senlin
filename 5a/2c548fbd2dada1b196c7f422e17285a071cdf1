@@ -1,0 +1,9 @@
+Code-Review+2: RUIJIE YUAN <cnjie0616@gmail.com>
+Code-Review+2: Yanyan Hu <yanyanhu@cn.ibm.com>
+Workflow+1: RUIJIE YUAN <cnjie0616@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 19 Dec 2016 08:29:14 +0000
+Reviewed-on: https://review.openstack.org/412176
+Project: openstack/deb-senlin
+Branch: refs/heads/master
