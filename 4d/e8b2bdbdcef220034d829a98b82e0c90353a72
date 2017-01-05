@@ -1,0 +1,9 @@
+Code-Review+2: Ethan Lynn <xuanlangjian@gmail.com>
+Code-Review+2: Xinhui Li <lxinhui@vmware.com>
+Workflow+1: Xinhui Li <lxinhui@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 05 Jan 2017 07:34:18 +0000
+Reviewed-on: https://review.openstack.org/416554
+Project: openstack/deb-senlin
+Branch: refs/heads/master
