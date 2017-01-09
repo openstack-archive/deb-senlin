@@ -1,0 +1,9 @@
+Code-Review+2: lvdongbing <dongbing.lv@kylin-cloud.com>
+Code-Review+2: Ethan Lynn <xuanlangjian@gmail.com>
+Workflow+1: Ethan Lynn <xuanlangjian@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 06 Jan 2017 10:08:30 +0000
+Reviewed-on: https://review.openstack.org/417273
+Project: openstack/deb-senlin
+Branch: refs/heads/master
