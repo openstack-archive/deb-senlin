@@ -145,7 +145,7 @@ Description: clustering service for OpenStack clouds - common files
 Package: senlin-api
 Architecture: all
 Depends: adduser,
-         lsb-base,
+         ${ostack-lsb-base},
          senlin-common (= ${binary:Version}),
          ${misc:Depends},
          ${python:Depends},
@@ -167,7 +167,7 @@ Description: clustering service for OpenStack clouds - API
 Package: senlin-engine
 Architecture: all
 Depends: adduser,
-         lsb-base,
+         ${ostack-lsb-base},
          senlin-common (= ${binary:Version}),
          ${misc:Depends},
          ${python:Depends},
