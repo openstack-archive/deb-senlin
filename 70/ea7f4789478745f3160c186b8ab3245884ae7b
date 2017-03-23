@@ -1,0 +1,9 @@
+Code-Review+2: Yanyan Hu <yanyanhu@cn.ibm.com>
+Workflow+1: Yanyan Hu <yanyanhu@cn.ibm.com>
+Workflow+1: Qiming Teng <tengqim@cn.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 18 Feb 2017 14:56:10 +0000
+Reviewed-on: https://review.openstack.org/435697
+Project: openstack/deb-senlin
+Branch: refs/heads/stable/ocata

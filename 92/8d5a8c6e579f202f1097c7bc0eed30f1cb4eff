@@ -1,0 +1,8 @@
+Code-Review+2: Qiming Teng <tengqim@cn.ibm.com>
+Workflow+1: Qiming Teng <tengqim@cn.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 10 Mar 2017 03:53:23 +0000
+Reviewed-on: https://review.openstack.org/443906
+Project: openstack/deb-senlin
+Branch: refs/heads/stable/ocata
