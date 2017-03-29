@@ -1,0 +1,9 @@
+Code-Review+2: Qiming Teng <tengqim@cn.ibm.com>
+Code-Review+2: RUIJIE YUAN <cnjie0616@gmail.com>
+Workflow+1: RUIJIE YUAN <cnjie0616@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 29 Mar 2017 06:55:09 +0000
+Reviewed-on: https://review.openstack.org/447267
+Project: openstack/deb-senlin
+Branch: refs/heads/master
