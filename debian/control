@@ -6,7 +6,7 @@ Uploaders: Thomas Goirand <zigo@debian.org>,
 Build-Depends: debhelper (>= 10),
                dh-python,
                dh-systemd,
-               openstack-pkg-tools (>= 53~),
+               openstack-pkg-tools (>= 54~),
                po-debconf,
                python-all,
                python-pbr (>= 1.8),
@@ -145,7 +145,6 @@ Description: clustering service for OpenStack clouds - common files
 Package: senlin-api
 Architecture: all
 Depends: adduser,
-         net-tools,
          ${ostack-lsb-base},
          senlin-common (= ${binary:Version}),
          ${misc:Depends},

@@ -1,9 +1,9 @@
 senlin (2.0.0-3) unstable; urgency=medium
 
   * Team upload.
-  * Add missing dependency net-tools (Closes: #858712).
+  * Bump build dependency on openstack-pkg-tools (Closes: #858712).
 
- -- David Rabel <david.rabel@noresoft.com>  Sat, 25 Mar 2017 13:35:16 +0100
+ -- David Rabel <david.rabel@noresoft.com>  Sat, 01 Apr 2017 12:35:16 +0200
 
 senlin (2.0.0-2) unstable; urgency=medium
 
