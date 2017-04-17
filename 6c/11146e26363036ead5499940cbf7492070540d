@@ -1,0 +1,9 @@
+Code-Review+2: Qiming Teng <tengqim@cn.ibm.com>
+Code-Review+2: Xinhui Li <lxinhui@vmware.com>
+Workflow+1: Xinhui Li <lxinhui@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 17 Apr 2017 12:49:39 +0000
+Reviewed-on: https://review.openstack.org/457062
+Project: openstack/deb-senlin
+Branch: refs/heads/master
