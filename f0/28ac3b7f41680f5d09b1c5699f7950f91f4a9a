@@ -1,0 +1,9 @@
+Code-Review+2: XueFeng Liu <liu.xuefeng1@zte.com.cn>
+Code-Review+2: Qiming Teng <tengqim@cn.ibm.com>
+Workflow+1: Qiming Teng <tengqim@cn.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 18 May 2017 12:09:56 +0000
+Reviewed-on: https://review.openstack.org/465000
+Project: openstack/deb-senlin
+Branch: refs/heads/master
