@@ -1,0 +1,9 @@
+Code-Review+2: XueFeng Liu <liu.xuefeng1@zte.com.cn>
+Code-Review+2: RUIJIE YUAN <cnjie0616@gmail.com>
+Workflow+1: RUIJIE YUAN <cnjie0616@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 08 Jul 2017 09:26:20 +0000
+Reviewed-on: https://review.openstack.org/481409
+Project: openstack/deb-senlin
+Branch: refs/heads/master
